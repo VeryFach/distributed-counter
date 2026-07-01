@@ -1,0 +1,8 @@
+node_id: node-a
+grpc_port: 50051
+http_port: 8080
+gossip_interval: 5
+heartbeat_interval: 3
+seed_nodes:
+  - node-b:50052
+  - node-c:50053
