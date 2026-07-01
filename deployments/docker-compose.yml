@@ -1,0 +1,75 @@
+version: "3.8"
+
+services:
+  node-a:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+    environment:
+      - NODE_ID=node-a
+      - GRPC_PORT=50051
+      - SEED_NODES=node-b:50052,node-c:50053
+    ports:
+      - "50051:50051"
+      - "8080:8080" # Prometheus metrics
+    networks:
+      - counter-net
+
+  node-b:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+    environment:
+      - NODE_ID=node-b
+      - GRPC_PORT=50052
+      - SEED_NODES=node-a:50051,node-c:50053
+    ports:
+      - "50052:50052"
+      - "8081:8080"
+    networks:
+      - counter-net
+
+  node-c:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+    environment:
+      - NODE_ID=node-c
+      - GRPC_PORT=50053
+      - SEED_NODES=node-a:50051,node-b:50052
+    ports:
+      - "50053:50053"
+      - "8082:8080"
+    networks:
+      - counter-net
+
+  redis:
+    image: redis:7.0-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - counter-net
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - counter-net
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./grafana-dashboards:/etc/grafana/provisioning/dashboards
+    networks:
+      - counter-net
+
+networks:
+  counter-net:
+    driver: bridge

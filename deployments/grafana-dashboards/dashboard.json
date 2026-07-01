@@ -1,0 +1,49 @@
+{
+    "title": "Distributed Counter Monitoring",
+    "panels": [
+        {
+            "title": "Counter Value per Node",
+            "type": "graph",
+            "targets": [
+                {
+                    "expr": "counter_current_value{node_id=~\"node-.*\"}",
+                    "legendFormat": "{{node_id}}"
+                }
+            ]
+        },
+        {
+            "title": "gRPC Request Rate",
+            "type": "graph",
+            "targets": [
+                {
+                    "expr": "rate(grpc_requests_total[5m])",
+                    "legendFormat": "{{method}}"
+                }
+            ]
+        },
+        {
+            "title": "Gossip Messages per Second",
+            "type": "graph",
+            "targets": [
+                {
+                    "expr": "rate(gossip_messages_sent[1m])",
+                    "legendFormat": "Sent"
+                },
+                {
+                    "expr": "rate(gossip_messages_received[1m])",
+                    "legendFormat": "Received"
+                }
+            ]
+        },
+        {
+            "title": "Cluster Node Status",
+            "type": "stat",
+            "targets": [
+                {
+                    "expr": "cluster_node_count",
+                    "legendFormat": "Active Nodes"
+                }
+            ]
+        }
+    ]
+}

@@ -1,0 +1,107 @@
+syntax = "proto3";
+
+package counter;
+
+option go_package = "github.com/VeryFach/distributed-counter/api/proto;counter";
+
+// Main Counter Service
+service CounterService {
+    // Client API - Unary Calls
+    rpc Increment(IncrementRequest) returns (CounterResponse);
+    rpc Decrement(DecrementRequest) returns (CounterResponse);
+    rpc GetValue(GetValueRequest) returns (CounterResponse);
+    rpc GetNodeInfo(GetNodeInfoRequest) returns (NodeInfo);
+    
+    // Cluster Communication - Bidirectional Streaming
+    rpc SyncState(stream StateUpdate) returns (stream StateUpdate);
+    
+    // Membership Management - Server Streaming
+    rpc JoinCluster(JoinRequest) returns (stream MemberList);
+    rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+}
+
+// Request & Response Messages
+message IncrementRequest {
+    int32 delta = 1;  // how much to increment (default: 1)
+    string client_id = 2;
+    int64 timestamp = 3;
+}
+
+message DecrementRequest {
+    int32 delta = 1;
+    string client_id = 2;
+    int64 timestamp = 3;
+}
+
+message GetValueRequest {
+    string node_id = 1;  // optional: get value from specific node
+}
+
+message GetNodeInfoRequest {}
+
+message CounterResponse {
+    string node_id = 1;
+    int64 current_value = 2;
+    string version = 3;          // Vector Clock representation
+    int64 last_updated = 4;      // Unix timestamp
+    repeated NodeInfo cluster_nodes = 5;
+}
+
+message NodeInfo {
+    string node_id = 1;
+    string address = 2;
+    int64 counter_value = 3;
+    string version = 4;
+    bool is_leader = 5;
+    int64 last_seen = 6;
+}
+
+// Gossip Protocol Messages
+message StateUpdate {
+    string from_node_id = 1;
+    int64 counter_value = 2;
+    int64 positive_delta = 3;    // PNCounter specific
+    int64 negative_delta = 4;    // PNCounter specific
+    string vector_clock = 5;     // JSON representation
+    int64 timestamp = 6;
+    enum UpdateType {
+        FULL_STATE = 0;
+        DELTA_UPDATE = 1;
+        HEARTBEAT = 2;
+    }
+    UpdateType type = 7;
+    map<string, int64> metadata = 8;
+}
+
+// Membership Messages
+message JoinRequest {
+    string node_id = 1;
+    string address = 2;
+    int64 startup_time = 3;
+}
+
+message MemberList {
+    repeated Member members = 1;
+    int64 version = 2;
+}
+
+message Member {
+    string node_id = 1;
+    string address = 2;
+    bool is_active = 3;
+    int64 last_heartbeat = 4;
+    int64 counter_value = 5;
+}
+
+message HeartbeatRequest {
+    string node_id = 1;
+    int64 current_value = 2;
+    int64 timestamp = 3;
+}
+
+message HeartbeatResponse {
+    bool success = 1;
+    string message = 2;
+    int64 cluster_size = 3;
+    repeated Member active_members = 4;
+}
