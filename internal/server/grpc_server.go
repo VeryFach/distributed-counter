@@ -16,20 +16,20 @@ import (
 )
 
 type GRPCServer struct {
-	server     *grpc.Server
-	port       int
-	counterSvc *service.CounterService
-	gossipHdl  *gossip.Handler
-	healthSvc  *health.Server
+	server       *grpc.Server
+	port         int
+	counterSvc   *service.CounterService
+	gossipEngine *gossip.GossipEngine
+	healthSvc    *health.Server
 }
 
-func NewGRPCServer(port int, counterSvc *service.CounterService, gossipHdl *gossip.Handler) *GRPCServer {
+func NewGRPCServer(port int, counterSvc *service.CounterService, gossipEngine *gossip.GossipEngine) *GRPCServer {
 	return &GRPCServer{
-		server:     grpc.NewServer(getServerOptions()...),
-		port:       port,
-		counterSvc: counterSvc,
-		gossipHdl:  gossipHdl,
-		healthSvc:  health.NewServer(),
+		server:       grpc.NewServer(getServerOptions()...),
+		port:         port,
+		counterSvc:   counterSvc,
+		gossipEngine: gossipEngine,
+		healthSvc:    health.NewServer(),
 	}
 }
 
@@ -61,15 +61,15 @@ func getServerOptions() []grpc.ServerOption {
 	// FIX 6: Comment sementara interceptor yang belum dibuat fungsinya
 	return []grpc.ServerOption{
 		/*
-		grpc.ChainUnaryInterceptor(
-			loggingInterceptor(),
-			recoveryInterceptor(),
-			metricsInterceptor(),
-		),
-		grpc.ChainStreamInterceptor(
-			streamLoggingInterceptor(),
-			streamMetricsInterceptor(),
-		),
+			grpc.ChainUnaryInterceptor(
+				loggingInterceptor(),
+				recoveryInterceptor(),
+				metricsInterceptor(),
+			),
+			grpc.ChainStreamInterceptor(
+				streamLoggingInterceptor(),
+				streamMetricsInterceptor(),
+			),
 		*/
 		// Max message size (useful for large state updates)
 		grpc.MaxRecvMsgSize(10 * 1024 * 1024), // 10 MB

@@ -1,0 +1,11 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: distributed-counter
+    static_configs:
+      - targets:
+          - node-a:8080
+          - node-b:8080
+          - node-c:8080

@@ -2,14 +2,15 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
+
 	"go.uber.org/zap"
 
 	"github.com/VeryFach/distributed-counter/internal/config"
+	"github.com/VeryFach/distributed-counter/internal/gossip"
 	"github.com/VeryFach/distributed-counter/internal/server"
 	"github.com/VeryFach/distributed-counter/internal/service"
 	"github.com/VeryFach/distributed-counter/pkg/logger"
@@ -28,21 +29,24 @@ func main() {
 	}
 
 	// Initialize logger
-	log, err := logger.New()
+	zlog, err := logger.New()
 	if err != nil {
 		log.Fatalf("Failed to create logger: %v", err)
 	}
-	defer log.Sync()
+	defer zlog.Sync()
 
-	log.Info("Starting Distributed Counter",
+	zlog.Info("Starting Distributed Counter",
 		zap.String("node_id", cfg.NodeID),
 		zap.Int("grpc_port", cfg.GRPCPort))
 
 	// Create service
-	counterSvc := service.NewCounterService(cfg.NodeID, log)
+	counterSvc := service.NewCounterService(cfg.NodeID, zlog)
+
+	// Create gossip engine
+	gossipEngine := gossip.NewGossipEngine(cfg.NodeID, zlog)
 
 	// Create gRPC server
-	grpcServer := server.NewGRPCServer(cfg.GRPCPort, counterSvc, log)
+	grpcServer := server.NewGRPCServer(cfg.GRPCPort, counterSvc, gossipEngine)
 
 	// Handle graceful shutdown
 	done := make(chan bool, 1)
@@ -51,16 +55,16 @@ func main() {
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 		<-sigCh
 
-		log.Info("Received shutdown signal, stopping server...")
+		zlog.Info("Received shutdown signal, stopping server...")
 		grpcServer.Stop()
 		done <- true
 	}()
 
 	// Start server
 	if err := grpcServer.Start(); err != nil {
-		log.Fatal("Failed to start server", zap.Error(err))
+		zlog.Fatal("Failed to start server", zap.Error(err))
 	}
 
 	<-done
-	log.Info("Server stopped")
+	zlog.Info("Server stopped")
 }

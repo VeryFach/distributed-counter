@@ -5,16 +5,15 @@ import (
 	"fmt"
 	"time"
 
-	//"github.com/google/uuid"
 	"go.uber.org/zap"
 
-	"github.com/VeryFach/distributed-counter/api/proto"
+	pb "github.com/VeryFach/distributed-counter/api/proto"
 	"github.com/VeryFach/distributed-counter/internal/cluster"
 	"github.com/VeryFach/distributed-counter/internal/crdt"
 )
 
 type CounterService struct {
-	proto.UnimplementedCounterServiceServer
+	pb.UnimplementedCounterServiceServer
 	nodeID  string
 	counter *crdt.PNCounter
 	clock   *crdt.VectorClock
@@ -31,7 +30,7 @@ func NewCounterService(nodeID string, logger *zap.Logger) *CounterService {
 	}
 }
 
-func (s *CounterService) Increment(ctx context.Context, req *proto.IncrementRequest) (*proto.CounterResponse, error) {
+func (s *CounterService) Increment(ctx context.Context, req *pb.IncrementRequest) (*pb.CounterResponse, error) {
 	s.logger.Debug("Increment called", zap.Int32("delta", req.Delta))
 
 	delta := int64(req.Delta)
@@ -45,7 +44,7 @@ func (s *CounterService) Increment(ctx context.Context, req *proto.IncrementRequ
 	return s.buildResponse(), nil
 }
 
-func (s *CounterService) Decrement(ctx context.Context, req *proto.DecrementRequest) (*proto.CounterResponse, error) {
+func (s *CounterService) Decrement(ctx context.Context, req *pb.DecrementRequest) (*pb.CounterResponse, error) {
 	s.logger.Debug("Decrement called", zap.Int32("delta", req.Delta))
 
 	delta := int64(req.Delta)
@@ -59,12 +58,12 @@ func (s *CounterService) Decrement(ctx context.Context, req *proto.DecrementRequ
 	return s.buildResponse(), nil
 }
 
-func (s *CounterService) GetValue(ctx context.Context, req *proto.GetValueRequest) (*proto.CounterResponse, error) {
+func (s *CounterService) GetValue(ctx context.Context, req *pb.GetValueRequest) (*pb.CounterResponse, error) {
 	return s.buildResponse(), nil
 }
 
-func (s *CounterService) GetNodeInfo(ctx context.Context, req *proto.GetNodeInfoRequest) (*proto.NodeInfo, error) {
-	return &proto.NodeInfo{
+func (s *CounterService) GetNodeInfo(ctx context.Context, req *pb.GetNodeInfoRequest) (*pb.NodeInfo, error) {
+	return &pb.NodeInfo{
 		NodeId:       s.nodeID,
 		Address:      fmt.Sprintf("localhost:%d", s.getPort()),
 		CounterValue: s.counter.Value(),
@@ -74,20 +73,20 @@ func (s *CounterService) GetNodeInfo(ctx context.Context, req *proto.GetNodeInfo
 	}, nil
 }
 
-func (s *CounterService) buildResponse() *proto.CounterResponse {
-	nodes := []*proto.NodeInfo{}
+func (s *CounterService) buildResponse() *pb.CounterResponse {
+	nodes := []*pb.NodeInfo{}
 	if s.cluster != nil {
 		for _, member := range s.cluster.GetMembers() {
-			nodes = append(nodes, &proto.NodeInfo{
+			nodes = append(nodes, &pb.NodeInfo{
 				NodeId:       member.ID,
 				Address:      member.Address,
 				CounterValue: member.CounterValue,
-				IsActive:     member.IsActive,
+				LastSeen:     member.LastHeartbeat.Unix(),
 			})
 		}
 	}
 
-	return &proto.CounterResponse{
+	return &pb.CounterResponse{
 		NodeId:       s.nodeID,
 		CurrentValue: s.counter.Value(),
 		Version:      s.clock.String(),
