@@ -15,19 +15,25 @@ import (
 type CounterService struct {
 	pb.UnimplementedCounterServiceServer
 	nodeID  string
+	port    int
 	counter *crdt.PNCounter
 	clock   *crdt.VectorClock
 	cluster *cluster.Membership
 	logger  *zap.Logger
 }
 
-func NewCounterService(nodeID string, logger *zap.Logger) *CounterService {
+func NewCounterService(nodeID string, port int, logger *zap.Logger) *CounterService {
 	return &CounterService{
 		nodeID:  nodeID,
+		port:    port,
 		counter: crdt.NewPNCounter(nodeID),
 		clock:   crdt.NewVectorClock(nodeID),
 		logger:  logger,
 	}
+}
+
+func (s *CounterService) getPort() int {
+	return s.port
 }
 
 func (s *CounterService) Increment(ctx context.Context, req *pb.IncrementRequest) (*pb.CounterResponse, error) {
@@ -93,12 +99,6 @@ func (s *CounterService) buildResponse() *pb.CounterResponse {
 		LastUpdated:  time.Now().Unix(),
 		ClusterNodes: nodes,
 	}
-}
-
-// Helper method - implement port getter
-func (s *CounterService) getPort() int {
-	// In real implementation, get from config
-	return 50051
 }
 
 // SetCluster injects cluster dependency

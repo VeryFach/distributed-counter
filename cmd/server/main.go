@@ -40,10 +40,12 @@ func main() {
 		zap.Int("grpc_port", cfg.GRPCPort))
 
 	// Create service
-	counterSvc := service.NewCounterService(cfg.NodeID, zlog)
+	counterSvc := service.NewCounterService(cfg.NodeID, cfg.GRPCPort, zlog)
 
 	// Create gossip engine
 	gossipEngine := gossip.NewGossipEngine(cfg.NodeID, zlog)
+
+	go gossipEngine.Start()
 
 	// Create gRPC server
 	grpcServer := server.NewGRPCServer(cfg.GRPCPort, counterSvc, gossipEngine)
