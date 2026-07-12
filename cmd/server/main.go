@@ -2,17 +2,18 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
-	"fmt"
 
 	"go.uber.org/zap"
 
 	"github.com/VeryFach/distributed-counter/internal/cluster"
 	"github.com/VeryFach/distributed-counter/internal/config"
 	"github.com/VeryFach/distributed-counter/internal/gossip"
+	"github.com/VeryFach/distributed-counter/internal/metrics"
 	"github.com/VeryFach/distributed-counter/internal/server"
 	"github.com/VeryFach/distributed-counter/internal/service"
 	"github.com/VeryFach/distributed-counter/pkg/logger"
@@ -35,11 +36,18 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create logger: %v", err)
 	}
+
 	defer zlog.Sync()
 
-	zlog.Info("Starting Distributed Counter",
+	zlog.Info(
+		"Starting Distributed Counter",
 		zap.String("node_id", cfg.NodeID),
-		zap.Int("grpc_port", cfg.GRPCPort))
+		zap.Int("grpc_port", cfg.GRPCPort),
+	)
+
+	metrics.StartServer(
+		cfg.MetricsPort,
+	)
 
 	// Create service
 	counterSvc := service.NewCounterService(cfg.NodeID, cfg.GRPCPort, zlog)
@@ -89,6 +97,14 @@ func main() {
 	if err := grpcServer.Start(); err != nil {
 		zlog.Fatal("Failed to start server", zap.Error(err))
 	}
+
+	zlog.Info(
+		"members",
+		zap.Any(
+			"members",
+			membership.GetMembers(),
+		),
+	)
 
 	<-done
 	zlog.Info("Server stopped")

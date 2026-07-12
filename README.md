@@ -482,7 +482,7 @@ sleep 5
 Windows PowerShell:
 
 ```powershell
-Start-Sleep -Seconds 5
+timeout /t 5
 ```
 
 ---
@@ -490,7 +490,7 @@ Start-Sleep -Seconds 5
 ## Run Integration Tests
 
 ```bash
-go test -v ./test/integration/...
+go test -v ./test/integration/cluster_test.go
 ```
 
 ---
@@ -498,7 +498,7 @@ go test -v ./test/integration/...
 ## Run End-to-End Tests
 
 ```bash
-go test -v ./test/e2e/...
+go test -v ./test/e2e/cluster_test.go
 ```
 
 ---
