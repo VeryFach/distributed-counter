@@ -435,13 +435,11 @@ func (x *NodeInfo) GetLastSeen() int64 {
 type StateUpdate struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	FromNodeId    string                 `protobuf:"bytes,1,opt,name=from_node_id,json=fromNodeId,proto3" json:"from_node_id,omitempty"`
-	CounterValue  int64                  `protobuf:"varint,2,opt,name=counter_value,json=counterValue,proto3" json:"counter_value,omitempty"`
-	PositiveDelta int64                  `protobuf:"varint,3,opt,name=positive_delta,json=positiveDelta,proto3" json:"positive_delta,omitempty"` // PNCounter specific
-	NegativeDelta int64                  `protobuf:"varint,4,opt,name=negative_delta,json=negativeDelta,proto3" json:"negative_delta,omitempty"` // PNCounter specific
-	VectorClock   string                 `protobuf:"bytes,5,opt,name=vector_clock,json=vectorClock,proto3" json:"vector_clock,omitempty"`        // JSON representation
-	Timestamp     int64                  `protobuf:"varint,6,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	Type          StateUpdate_UpdateType `protobuf:"varint,7,opt,name=type,proto3,enum=counter.StateUpdate_UpdateType" json:"type,omitempty"`
-	Metadata      map[string]int64       `protobuf:"bytes,8,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	PositiveState map[string]int64       `protobuf:"bytes,2,rep,name=positive_state,json=positiveState,proto3" json:"positive_state,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	NegativeState map[string]int64       `protobuf:"bytes,3,rep,name=negative_state,json=negativeState,proto3" json:"negative_state,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	VectorClock   map[string]int64       `protobuf:"bytes,4,rep,name=vector_clock,json=vectorClock,proto3" json:"vector_clock,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	Timestamp     int64                  `protobuf:"varint,5,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	Type          StateUpdate_UpdateType `protobuf:"varint,6,opt,name=type,proto3,enum=counter.StateUpdate_UpdateType" json:"type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -483,32 +481,25 @@ func (x *StateUpdate) GetFromNodeId() string {
 	return ""
 }
 
-func (x *StateUpdate) GetCounterValue() int64 {
+func (x *StateUpdate) GetPositiveState() map[string]int64 {
 	if x != nil {
-		return x.CounterValue
+		return x.PositiveState
 	}
-	return 0
+	return nil
 }
 
-func (x *StateUpdate) GetPositiveDelta() int64 {
+func (x *StateUpdate) GetNegativeState() map[string]int64 {
 	if x != nil {
-		return x.PositiveDelta
+		return x.NegativeState
 	}
-	return 0
+	return nil
 }
 
-func (x *StateUpdate) GetNegativeDelta() int64 {
-	if x != nil {
-		return x.NegativeDelta
-	}
-	return 0
-}
-
-func (x *StateUpdate) GetVectorClock() string {
+func (x *StateUpdate) GetVectorClock() map[string]int64 {
 	if x != nil {
 		return x.VectorClock
 	}
-	return ""
+	return nil
 }
 
 func (x *StateUpdate) GetTimestamp() int64 {
@@ -523,13 +514,6 @@ func (x *StateUpdate) GetType() StateUpdate_UpdateType {
 		return x.Type
 	}
 	return StateUpdate_FULL_STATE
-}
-
-func (x *StateUpdate) GetMetadata() map[string]int64 {
-	if x != nil {
-		return x.Metadata
-	}
-	return nil
 }
 
 // Membership Messages
@@ -877,18 +861,22 @@ const file_api_proto_counter_proto_rawDesc = "" +
 	"\rcounter_value\x18\x03 \x01(\x03R\fcounterValue\x12\x18\n" +
 	"\aversion\x18\x04 \x01(\tR\aversion\x12\x1b\n" +
 	"\tis_leader\x18\x05 \x01(\bR\bisLeader\x12\x1b\n" +
-	"\tlast_seen\x18\x06 \x01(\x03R\blastSeen\"\xd4\x03\n" +
+	"\tlast_seen\x18\x06 \x01(\x03R\blastSeen\"\xef\x04\n" +
 	"\vStateUpdate\x12 \n" +
 	"\ffrom_node_id\x18\x01 \x01(\tR\n" +
-	"fromNodeId\x12#\n" +
-	"\rcounter_value\x18\x02 \x01(\x03R\fcounterValue\x12%\n" +
-	"\x0epositive_delta\x18\x03 \x01(\x03R\rpositiveDelta\x12%\n" +
-	"\x0enegative_delta\x18\x04 \x01(\x03R\rnegativeDelta\x12!\n" +
-	"\fvector_clock\x18\x05 \x01(\tR\vvectorClock\x12\x1c\n" +
-	"\ttimestamp\x18\x06 \x01(\x03R\ttimestamp\x123\n" +
-	"\x04type\x18\a \x01(\x0e2\x1f.counter.StateUpdate.UpdateTypeR\x04type\x12>\n" +
-	"\bmetadata\x18\b \x03(\v2\".counter.StateUpdate.MetadataEntryR\bmetadata\x1a;\n" +
-	"\rMetadataEntry\x12\x10\n" +
+	"fromNodeId\x12N\n" +
+	"\x0epositive_state\x18\x02 \x03(\v2'.counter.StateUpdate.PositiveStateEntryR\rpositiveState\x12N\n" +
+	"\x0enegative_state\x18\x03 \x03(\v2'.counter.StateUpdate.NegativeStateEntryR\rnegativeState\x12H\n" +
+	"\fvector_clock\x18\x04 \x03(\v2%.counter.StateUpdate.VectorClockEntryR\vvectorClock\x12\x1c\n" +
+	"\ttimestamp\x18\x05 \x01(\x03R\ttimestamp\x123\n" +
+	"\x04type\x18\x06 \x01(\x0e2\x1f.counter.StateUpdate.UpdateTypeR\x04type\x1a@\n" +
+	"\x12PositiveStateEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\x1a@\n" +
+	"\x12NegativeStateEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\x1a>\n" +
+	"\x10VectorClockEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\"=\n" +
 	"\n" +
@@ -942,7 +930,7 @@ func file_api_proto_counter_proto_rawDescGZIP() []byte {
 }
 
 var file_api_proto_counter_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_api_proto_counter_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_api_proto_counter_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_api_proto_counter_proto_goTypes = []any{
 	(StateUpdate_UpdateType)(0), // 0: counter.StateUpdate.UpdateType
 	(*IncrementRequest)(nil),    // 1: counter.IncrementRequest
@@ -957,33 +945,37 @@ var file_api_proto_counter_proto_goTypes = []any{
 	(*Member)(nil),              // 10: counter.Member
 	(*HeartbeatRequest)(nil),    // 11: counter.HeartbeatRequest
 	(*HeartbeatResponse)(nil),   // 12: counter.HeartbeatResponse
-	nil,                         // 13: counter.StateUpdate.MetadataEntry
+	nil,                         // 13: counter.StateUpdate.PositiveStateEntry
+	nil,                         // 14: counter.StateUpdate.NegativeStateEntry
+	nil,                         // 15: counter.StateUpdate.VectorClockEntry
 }
 var file_api_proto_counter_proto_depIdxs = []int32{
 	6,  // 0: counter.CounterResponse.cluster_nodes:type_name -> counter.NodeInfo
-	0,  // 1: counter.StateUpdate.type:type_name -> counter.StateUpdate.UpdateType
-	13, // 2: counter.StateUpdate.metadata:type_name -> counter.StateUpdate.MetadataEntry
-	10, // 3: counter.MemberList.members:type_name -> counter.Member
-	10, // 4: counter.HeartbeatResponse.active_members:type_name -> counter.Member
-	1,  // 5: counter.CounterService.Increment:input_type -> counter.IncrementRequest
-	2,  // 6: counter.CounterService.Decrement:input_type -> counter.DecrementRequest
-	3,  // 7: counter.CounterService.GetValue:input_type -> counter.GetValueRequest
-	4,  // 8: counter.CounterService.GetNodeInfo:input_type -> counter.GetNodeInfoRequest
-	7,  // 9: counter.CounterService.SyncState:input_type -> counter.StateUpdate
-	8,  // 10: counter.CounterService.JoinCluster:input_type -> counter.JoinRequest
-	11, // 11: counter.CounterService.Heartbeat:input_type -> counter.HeartbeatRequest
-	5,  // 12: counter.CounterService.Increment:output_type -> counter.CounterResponse
-	5,  // 13: counter.CounterService.Decrement:output_type -> counter.CounterResponse
-	5,  // 14: counter.CounterService.GetValue:output_type -> counter.CounterResponse
-	6,  // 15: counter.CounterService.GetNodeInfo:output_type -> counter.NodeInfo
-	7,  // 16: counter.CounterService.SyncState:output_type -> counter.StateUpdate
-	9,  // 17: counter.CounterService.JoinCluster:output_type -> counter.MemberList
-	12, // 18: counter.CounterService.Heartbeat:output_type -> counter.HeartbeatResponse
-	12, // [12:19] is the sub-list for method output_type
-	5,  // [5:12] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+	13, // 1: counter.StateUpdate.positive_state:type_name -> counter.StateUpdate.PositiveStateEntry
+	14, // 2: counter.StateUpdate.negative_state:type_name -> counter.StateUpdate.NegativeStateEntry
+	15, // 3: counter.StateUpdate.vector_clock:type_name -> counter.StateUpdate.VectorClockEntry
+	0,  // 4: counter.StateUpdate.type:type_name -> counter.StateUpdate.UpdateType
+	10, // 5: counter.MemberList.members:type_name -> counter.Member
+	10, // 6: counter.HeartbeatResponse.active_members:type_name -> counter.Member
+	1,  // 7: counter.CounterService.Increment:input_type -> counter.IncrementRequest
+	2,  // 8: counter.CounterService.Decrement:input_type -> counter.DecrementRequest
+	3,  // 9: counter.CounterService.GetValue:input_type -> counter.GetValueRequest
+	4,  // 10: counter.CounterService.GetNodeInfo:input_type -> counter.GetNodeInfoRequest
+	7,  // 11: counter.CounterService.SyncState:input_type -> counter.StateUpdate
+	8,  // 12: counter.CounterService.JoinCluster:input_type -> counter.JoinRequest
+	11, // 13: counter.CounterService.Heartbeat:input_type -> counter.HeartbeatRequest
+	5,  // 14: counter.CounterService.Increment:output_type -> counter.CounterResponse
+	5,  // 15: counter.CounterService.Decrement:output_type -> counter.CounterResponse
+	5,  // 16: counter.CounterService.GetValue:output_type -> counter.CounterResponse
+	6,  // 17: counter.CounterService.GetNodeInfo:output_type -> counter.NodeInfo
+	7,  // 18: counter.CounterService.SyncState:output_type -> counter.StateUpdate
+	9,  // 19: counter.CounterService.JoinCluster:output_type -> counter.MemberList
+	12, // 20: counter.CounterService.Heartbeat:output_type -> counter.HeartbeatResponse
+	14, // [14:21] is the sub-list for method output_type
+	7,  // [7:14] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_api_proto_counter_proto_init() }
@@ -997,7 +989,7 @@ func file_api_proto_counter_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_proto_counter_proto_rawDesc), len(file_api_proto_counter_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   13,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

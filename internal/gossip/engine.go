@@ -9,6 +9,9 @@ import (
 	"github.com/VeryFach/distributed-counter/internal/cluster"
 	"github.com/VeryFach/distributed-counter/internal/crdt"
 	"go.uber.org/zap"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 type GossipEngine struct {
@@ -16,6 +19,7 @@ type GossipEngine struct {
 	logger  *zap.Logger
 	counter *crdt.PNCounter
 	cluster *cluster.Membership
+	clock   *crdt.VectorClock
 
 	// gRPC connections pool
 	connections map[string]counter.CounterServiceClient
@@ -26,10 +30,20 @@ type GossipEngine struct {
 	cancel context.CancelFunc
 }
 
-func NewGossipEngine(nodeID string, logger *zap.Logger) *GossipEngine {
+func NewGossipEngine(
+	nodeID string,
+	pnCounter *crdt.PNCounter,
+	clock *crdt.VectorClock,
+	cluster *cluster.Membership,
+	logger *zap.Logger,
+) *GossipEngine {
 	ctx, cancel := context.WithCancel(context.Background())
+
 	return &GossipEngine{
 		nodeID:      nodeID,
+		counter:     pnCounter,
+		clock:       clock,
+		cluster:     cluster,
 		logger:      logger,
 		connections: make(map[string]counter.CounterServiceClient),
 		streams:     make(map[string]counter.CounterService_SyncStateClient),
@@ -73,12 +87,11 @@ func (g *GossipEngine) gossipToPeer(peer *cluster.Member) {
 	// Create state update message
 	update := &counter.StateUpdate{
 		FromNodeId:    g.nodeID,
-		CounterValue:  g.counter.Value(),
-		PositiveDelta: 0, // In real implementation, calculate delta since last sync
-		NegativeDelta: 0,
-		VectorClock:   g.getVectorClock(),
+		PositiveState: g.counter.Positive(),
+		NegativeState: g.counter.Negative(),
+		VectorClock:   g.clock.State(),
 		Timestamp:     time.Now().Unix(),
-		Type:          counter.StateUpdate_DELTA_UPDATE,
+		Type:          counter.StateUpdate_FULL_STATE,
 	}
 
 	// Send via gRPC streaming
@@ -101,16 +114,16 @@ func (g *GossipEngine) gossipToPeer(peer *cluster.Member) {
 	}
 
 	// Merge received state
-	g.counter.Increment(response.CounterValue)
+	remote := crdt.NewPNCounter("")
+
+	remote.SetPositive(response.PositiveState)
+	remote.SetNegative(response.NegativeState)
+
+	g.counter.Merge(remote)
+	g.clock.MergeMap(response.VectorClock)
 	g.logger.Debug("State synchronized",
 		zap.String("peer", peer.Address),
 		zap.Int64("new_value", g.counter.Value()))
-}
-
-// getVectorClock returns the current vector clock as a string
-func (g *GossipEngine) getVectorClock() string {
-	// TODO: Implement vector clock serialization
-	return "{}"
 }
 
 // getOrCreateStream creates or returns existing gRPC stream to peer
@@ -122,13 +135,27 @@ func (g *GossipEngine) getOrCreateStream(address string) (counter.CounterService
 		return stream, nil
 	}
 
-	// TODO: Implement gRPC connection and stream creation
-	// This is a placeholder - actual implementation would:
-	// 1. Check if connection exists in g.connections
-	// 2. Create new connection if needed
-	// 3. Create SyncState stream
-	// 4. Store both in maps
-	return nil, nil
+	conn, err := grpc.Dial(
+		address,
+		grpc.WithTransportCredentials(
+			insecure.NewCredentials(),
+		),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	client := counter.NewCounterServiceClient(conn)
+
+	stream, err := client.SyncState(g.ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	g.connections[address] = client
+	g.streams[address] = stream
+
+	return stream, nil
 }
 
 // Stop gracefully stops the gossip engine

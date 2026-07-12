@@ -19,6 +19,17 @@ func NewVectorClock(nodeID string) *VectorClock {
     }
 }
 
+func (v *VectorClock) MergeMap(state map[string]int64) {
+    v.mu.Lock()
+    defer v.mu.Unlock()
+
+    for node, version := range state {
+        if v.clock[node] < version {
+            v.clock[node] = version
+        }
+    }
+}
+
 func (v *VectorClock) Increment() {
     v.mu.Lock()
     defer v.mu.Unlock()
@@ -45,4 +56,15 @@ func (v *VectorClock) String() string {
     
     b, _ := json.Marshal(v.clock)
     return string(b)
+}
+
+func (v *VectorClock) State() map[string]int64 {
+    v.mu.RLock()
+    defer v.mu.RUnlock()
+
+    res := make(map[string]int64)
+    for k, val := range v.clock {
+        res[k] = val
+    }
+    return res
 }

@@ -77,3 +77,14 @@ func (m *Membership) GetRandomPeers(count int) []*Member {
 	}
 	return peers
 }
+
+func (m *Membership) AddDiscoveredNodes(
+	nodes map[string]string,
+) {
+	for id, addr := range nodes {
+		if id == m.nodeID {
+			continue
+		}
+		m.AddMember(id, addr)
+	}
+}

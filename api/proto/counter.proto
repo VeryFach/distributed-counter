@@ -59,18 +59,20 @@ message NodeInfo {
 // Gossip Protocol Messages
 message StateUpdate {
     string from_node_id = 1;
-    int64 counter_value = 2;
-    int64 positive_delta = 3;    // PNCounter specific
-    int64 negative_delta = 4;    // PNCounter specific
-    string vector_clock = 5;     // JSON representation
-    int64 timestamp = 6;
+
+    map<string,int64> positive_state = 2;
+    map<string,int64> negative_state = 3;
+    map<string,int64> vector_clock = 4;
+
+    int64 timestamp = 5;
+
     enum UpdateType {
         FULL_STATE = 0;
         DELTA_UPDATE = 1;
         HEARTBEAT = 2;
     }
-    UpdateType type = 7;
-    map<string, int64> metadata = 8;
+
+    UpdateType type = 6;
 }
 
 // Membership Messages

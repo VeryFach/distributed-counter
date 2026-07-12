@@ -7,6 +7,7 @@ import (
 type Config struct {
     NodeID      string   `mapstructure:"node_id"`
     GRPCPort    int      `mapstructure:"grpc_port"`
+    MetricsPort      int      `mapstructure:"metrics_port"`
     HTTPPort    int      `mapstructure:"http_port"`
     SeedNodes   []string `mapstructure:"seed_nodes"`
     GossipInterval int   `mapstructure:"gossip_interval"`

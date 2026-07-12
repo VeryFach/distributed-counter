@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"time"
+	"io"
 
 	"go.uber.org/zap"
 
 	pb "github.com/VeryFach/distributed-counter/api/proto"
 	"github.com/VeryFach/distributed-counter/internal/cluster"
 	"github.com/VeryFach/distributed-counter/internal/crdt"
+	"github.com/VeryFach/distributed-counter/internal/metrics"
 )
 
 type CounterService struct {
@@ -20,6 +22,7 @@ type CounterService struct {
 	clock   *crdt.VectorClock
 	cluster *cluster.Membership
 	logger  *zap.Logger
+	onUpdate func(*pb.StateUpdate)
 }
 
 func NewCounterService(nodeID string, port int, logger *zap.Logger) *CounterService {
@@ -47,6 +50,9 @@ func (s *CounterService) Increment(ctx context.Context, req *pb.IncrementRequest
 	s.counter.Increment(delta)
 	s.clock.Increment()
 
+	metrics.IncIncrementTotal(s.nodeID)
+    metrics.UpdateCounterValue(s.nodeID, s.counter.Value())
+
 	return s.buildResponse(), nil
 }
 
@@ -60,6 +66,9 @@ func (s *CounterService) Decrement(ctx context.Context, req *pb.DecrementRequest
 
 	s.counter.Decrement(delta)
 	s.clock.Increment()
+
+    metrics.IncDecrementTotal(s.nodeID)
+    metrics.UpdateCounterValue(s.nodeID, s.counter.Value())
 
 	return s.buildResponse(), nil
 }
@@ -104,4 +113,68 @@ func (s *CounterService) buildResponse() *pb.CounterResponse {
 // SetCluster injects cluster dependency
 func (s *CounterService) SetCluster(cluster *cluster.Membership) {
 	s.cluster = cluster
+}
+
+func (s *CounterService) SyncState(
+    stream pb.CounterService_SyncStateServer,
+) error {
+    for {
+        select {
+        case <-stream.Context().Done():
+            s.logger.Debug("sync stream closed")
+            return nil
+        default:
+        }
+
+        update, err := stream.Recv()
+        if err == io.EOF {
+            return nil
+        }
+        if err != nil {
+            s.logger.Error("sync receive failed",
+                zap.Error(err))
+            return err
+        }
+
+        // Jangan ACK heartbeat lagi
+        if update.Type == pb.StateUpdate_HEARTBEAT {
+            continue
+        }
+
+        remote := crdt.NewPNCounter("")
+        remote.SetPositive(update.PositiveState)
+        remote.SetNegative(update.NegativeState)
+
+        s.counter.Merge(remote)
+        s.clock.MergeMap(update.VectorClock)
+
+        metrics.UpdateCounterValue(
+            s.nodeID,
+            s.counter.Value(),
+        )
+        metrics.IncGossipReceived(s.nodeID)
+
+        // kirim acknowledgement
+        ack := &pb.StateUpdate{
+            FromNodeId: s.nodeID,
+            Timestamp:  time.Now().Unix(),
+            Type:       pb.StateUpdate_HEARTBEAT,
+        }
+
+        if err := stream.Send(ack); err != nil {
+            return err
+        }
+    }
+}
+
+func (s *CounterService) Counter() *crdt.PNCounter {
+    return s.counter
+}
+
+func (s *CounterService) Clock() *crdt.VectorClock {
+    return s.clock
+}
+
+func (s *CounterService) Cluster() *cluster.Membership {
+    return s.cluster
 }

@@ -6,9 +6,11 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"fmt"
 
 	"go.uber.org/zap"
 
+	"github.com/VeryFach/distributed-counter/internal/cluster"
 	"github.com/VeryFach/distributed-counter/internal/config"
 	"github.com/VeryFach/distributed-counter/internal/gossip"
 	"github.com/VeryFach/distributed-counter/internal/server"
@@ -42,8 +44,28 @@ func main() {
 	// Create service
 	counterSvc := service.NewCounterService(cfg.NodeID, cfg.GRPCPort, zlog)
 
-	// Create gossip engine
-	gossipEngine := gossip.NewGossipEngine(cfg.NodeID, zlog)
+	membership := cluster.NewMembership(
+		cfg.NodeID,
+	)
+
+	discovery := cluster.NewDiscovery(cfg.SeedNodes)
+
+	for i, addr := range discovery.SeedNodes() {
+		id := fmt.Sprintf("seed-%d", i)
+
+		discovery.AddNode(id, addr)
+		membership.AddMember(id, addr)
+	}
+
+	counterSvc.SetCluster(membership)
+
+	gossipEngine := gossip.NewGossipEngine(
+		cfg.NodeID,
+		counterSvc.Counter(),
+		counterSvc.Clock(),
+		membership,
+		zlog,
+	)
 
 	go gossipEngine.Start()
 
@@ -58,6 +80,7 @@ func main() {
 		<-sigCh
 
 		zlog.Info("Received shutdown signal, stopping server...")
+		gossipEngine.Stop()
 		grpcServer.Stop()
 		done <- true
 	}()

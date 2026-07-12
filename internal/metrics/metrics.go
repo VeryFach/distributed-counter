@@ -46,6 +46,22 @@ var (
     )
 )
 
-func UpdateCurrentValue(nodeID string, value int64) {
+func UpdateCounterValue(nodeID string, value int64) {
     CurrentValue.WithLabelValues(nodeID).Set(float64(value))
+}
+
+func IncIncrementTotal(nodeID string) {
+    IncrementTotal.WithLabelValues(nodeID).Inc()
+}
+
+func IncDecrementTotal(nodeID string) {
+    DecrementTotal.WithLabelValues(nodeID).Inc()
+}
+
+func IncGossipSent(nodeID string) {
+    GossipMessagesSent.WithLabelValues(nodeID).Inc()
+}
+
+func IncGossipReceived(nodeID string) {
+    GossipMessagesReceived.WithLabelValues(nodeID).Inc()
 }
