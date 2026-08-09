@@ -4,6 +4,7 @@ metrics_port: 8080
 http_port: 8080
 gossip_interval: 5
 heartbeat_interval: 3
+heartbeat_timeout: 10
 seed_nodes:
   - node-b:50052
   - node-c:50053

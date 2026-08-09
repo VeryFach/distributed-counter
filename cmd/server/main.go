@@ -56,10 +56,7 @@ func main() {
 	)
 
 	heartbeatInterval := time.Duration(cfg.HeartbeatInterval) * time.Second
-	if heartbeatInterval <= 0 {
-		heartbeatInterval = 3 * time.Second
-	}
-	staleTimeout := 10 * time.Second
+	staleTimeout := time.Duration(cfg.HeartbeatTimeout) * time.Second
 
 	localAddress := fmt.Sprintf("localhost:%d", cfg.GRPCPort)
 
