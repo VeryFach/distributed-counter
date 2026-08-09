@@ -1,4 +1,4 @@
-.PHONY: proto build run test clean docker-up docker-down
+.PHONY: proto build run test clean docker-up docker-down test-integration
 
 proto:
 	@echo "Generating protobuf code..."
@@ -15,6 +15,10 @@ run:
 test:
 	@echo "Running tests..."
 	go test -v ./...
+
+test-integration:
+	@echo "Running integration tests..."
+	"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File ./scripts/test-integration.ps1
 
 docker-up:
 	@echo "Starting Docker Compose..."

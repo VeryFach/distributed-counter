@@ -59,7 +59,10 @@ func main() {
 	heartbeatInterval := time.Duration(cfg.HeartbeatInterval) * time.Second
 	staleTimeout := time.Duration(cfg.HeartbeatTimeout) * time.Second
 
-	localAddress := fmt.Sprintf("localhost:%d", cfg.GRPCPort)
+	localAddress := cfg.AdvertiseAddress
+	if localAddress == "" {
+		localAddress = fmt.Sprintf("localhost:%d", cfg.GRPCPort)
+	}
 
 	// Create service
 	counterSvc := service.NewCounterService(cfg.NodeID, cfg.GRPCPort, zlog)

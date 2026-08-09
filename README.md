@@ -266,10 +266,16 @@ api/proto/
 ```yaml
 node_id: node1
 grpc_port: 50051
+advertise_address: node-a:50051
+metrics_port: 8080
+http_port: 8080
+gossip_interval: 5
+heartbeat_interval: 3
+heartbeat_timeout: 10
 
 seed_nodes:
-  - localhost:50052
-  - localhost:50053
+  - node-b:50052
+  - node-c:50053
 ```
 
 ## Node 2
@@ -277,10 +283,16 @@ seed_nodes:
 ```yaml
 node_id: node2
 grpc_port: 50052
+advertise_address: node-b:50052
+metrics_port: 8081
+http_port: 8081
+gossip_interval: 5
+heartbeat_interval: 3
+heartbeat_timeout: 10
 
 seed_nodes:
-  - localhost:50051
-  - localhost:50053
+  - node-a:50051
+  - node-c:50053
 ```
 
 ## Node 3
@@ -288,10 +300,16 @@ seed_nodes:
 ```yaml
 node_id: node3
 grpc_port: 50053
+advertise_address: node-c:50053
+metrics_port: 8082
+http_port: 8082
+gossip_interval: 5
+heartbeat_interval: 3
+heartbeat_timeout: 10
 
 seed_nodes:
-  - localhost:50051
-  - localhost:50052
+  - node-a:50051
+  - node-b:50052
 ```
 
 ---
@@ -351,31 +369,43 @@ version: "3.9"
 
 services:
   node1:
-    build: .
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
     container_name: node1
     command:
-      - --config
+      - ./counter-server
+      - -config
       - configs/node1.yaml
     ports:
       - "50051:50051"
+      - "8080:8080"
 
   node2:
-    build: .
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
     container_name: node2
     command:
-      - --config
+      - ./counter-server
+      - -config
       - configs/node2.yaml
     ports:
       - "50052:50052"
+      - "8081:8081"
 
   node3:
-    build: .
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
     container_name: node3
     command:
-      - --config
+      - ./counter-server
+      - -config
       - configs/node3.yaml
     ports:
       - "50053:50053"
+      - "8082:8082"
 ```
 
 Start cluster:
@@ -490,7 +520,19 @@ timeout /t 5
 ## Run Integration Tests
 
 ```bash
-go test -v ./test/integration/cluster_test.go
+make test-integration
+```
+
+If you want to run the package directly after the cluster is already up:
+
+```bash
+go test -v ./test/integration/...
+```
+
+Windows PowerShell direct run:
+
+```powershell
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File scripts/test-integration.ps1
 ```
 
 ---

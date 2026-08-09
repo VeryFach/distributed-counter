@@ -1,0 +1,11 @@
+node_id: node-b
+grpc_port: 50052
+advertise_address: node-b:50052
+metrics_port: 8081
+http_port: 8081
+gossip_interval: 5
+heartbeat_interval: 3
+heartbeat_timeout: 10
+seed_nodes:
+  - node-a:50051
+  - node-c:50053

@@ -11,6 +11,7 @@ type Config struct {
 	GRPCPort          int      `mapstructure:"grpc_port"`
 	MetricsPort       int      `mapstructure:"metrics_port"`
 	HTTPPort          int      `mapstructure:"http_port"`
+	AdvertiseAddress  string   `mapstructure:"advertise_address"`
 	SeedNodes         []string `mapstructure:"seed_nodes"`
 	GossipInterval    int      `mapstructure:"gossip_interval"`
 	HeartbeatInterval int      `mapstructure:"heartbeat_interval"`
