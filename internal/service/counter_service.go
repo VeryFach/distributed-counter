@@ -3,10 +3,11 @@ package service
 import (
 	"context"
 	"fmt"
-	"time"
 	"io"
+	"time"
 
 	"go.uber.org/zap"
+	"google.golang.org/grpc/peer"
 
 	pb "github.com/VeryFach/distributed-counter/api/proto"
 	"github.com/VeryFach/distributed-counter/internal/cluster"
@@ -16,12 +17,12 @@ import (
 
 type CounterService struct {
 	pb.UnimplementedCounterServiceServer
-	nodeID  string
-	port    int
-	counter *crdt.PNCounter
-	clock   *crdt.VectorClock
-	cluster *cluster.Membership
-	logger  *zap.Logger
+	nodeID   string
+	port     int
+	counter  *crdt.PNCounter
+	clock    *crdt.VectorClock
+	cluster  *cluster.Membership
+	logger   *zap.Logger
 	onUpdate func(*pb.StateUpdate)
 }
 
@@ -51,7 +52,7 @@ func (s *CounterService) Increment(ctx context.Context, req *pb.IncrementRequest
 	s.clock.Increment()
 
 	metrics.IncIncrementTotal(s.nodeID)
-    metrics.UpdateCounterValue(s.nodeID, s.counter.Value())
+	metrics.UpdateCounterValue(s.nodeID, s.counter.Value())
 
 	return s.buildResponse(), nil
 }
@@ -67,8 +68,8 @@ func (s *CounterService) Decrement(ctx context.Context, req *pb.DecrementRequest
 	s.counter.Decrement(delta)
 	s.clock.Increment()
 
-    metrics.IncDecrementTotal(s.nodeID)
-    metrics.UpdateCounterValue(s.nodeID, s.counter.Value())
+	metrics.IncDecrementTotal(s.nodeID)
+	metrics.UpdateCounterValue(s.nodeID, s.counter.Value())
 
 	return s.buildResponse(), nil
 }
@@ -85,6 +86,80 @@ func (s *CounterService) GetNodeInfo(ctx context.Context, req *pb.GetNodeInfoReq
 		Version:      s.clock.String(),
 		IsLeader:     false,
 		LastSeen:     time.Now().Unix(),
+	}, nil
+}
+
+func (s *CounterService) JoinCluster(
+	req *pb.JoinRequest,
+	stream pb.CounterService_JoinClusterServer,
+) error {
+	if s.cluster != nil {
+		s.cluster.AddMember(req.NodeId, req.Address)
+	}
+
+	members := []*pb.Member{}
+	if s.cluster != nil {
+		for _, member := range s.cluster.GetMembers() {
+			members = append(members, &pb.Member{
+				NodeId:        member.ID,
+				Address:       member.Address,
+				IsActive:      member.IsActive,
+				LastHeartbeat: member.LastHeartbeat.Unix(),
+				CounterValue:  member.CounterValue,
+			})
+		}
+	}
+
+	if len(members) == 0 && req.NodeId != "" {
+		members = append(members, &pb.Member{
+			NodeId:        req.NodeId,
+			Address:       req.Address,
+			IsActive:      true,
+			LastHeartbeat: time.Now().Unix(),
+		})
+	}
+
+	return stream.Send(&pb.MemberList{
+		Members: members,
+		Version: time.Now().Unix(),
+	})
+}
+
+func (s *CounterService) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*pb.HeartbeatResponse, error) {
+	if s.cluster != nil {
+		if _, exists := s.cluster.GetMember(req.NodeId); exists {
+			s.cluster.UpdateHeartbeat(req.NodeId)
+		} else {
+			remoteAddress := ""
+			if remotePeer, ok := peer.FromContext(ctx); ok && remotePeer.Addr != nil {
+				remoteAddress = remotePeer.Addr.String()
+			}
+			s.cluster.AddOrUpdateMember(req.NodeId, remoteAddress, true, time.Unix(req.Timestamp, 0))
+		}
+	}
+
+	activeMembers := make([]*pb.Member, 0)
+	clusterSize := int64(0)
+	if s.cluster != nil {
+		for _, member := range s.cluster.GetMembers() {
+			if member.IsActive {
+				activeMembers = append(activeMembers, &pb.Member{
+					NodeId:        member.ID,
+					Address:       member.Address,
+					IsActive:      member.IsActive,
+					LastHeartbeat: member.LastHeartbeat.Unix(),
+					CounterValue:  member.CounterValue,
+				})
+			}
+		}
+		clusterSize = int64(len(activeMembers))
+	}
+
+	return &pb.HeartbeatResponse{
+		Success:       true,
+		Message:       "heartbeat acknowledged",
+		ClusterSize:   clusterSize,
+		ActiveMembers: activeMembers,
 	}, nil
 }
 
@@ -116,65 +191,65 @@ func (s *CounterService) SetCluster(cluster *cluster.Membership) {
 }
 
 func (s *CounterService) SyncState(
-    stream pb.CounterService_SyncStateServer,
+	stream pb.CounterService_SyncStateServer,
 ) error {
-    for {
-        select {
-        case <-stream.Context().Done():
-            s.logger.Debug("sync stream closed")
-            return nil
-        default:
-        }
+	for {
+		select {
+		case <-stream.Context().Done():
+			s.logger.Debug("sync stream closed")
+			return nil
+		default:
+		}
 
-        update, err := stream.Recv()
-        if err == io.EOF {
-            return nil
-        }
-        if err != nil {
-            s.logger.Error("sync receive failed",
-                zap.Error(err))
-            return err
-        }
+		update, err := stream.Recv()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			s.logger.Error("sync receive failed",
+				zap.Error(err))
+			return err
+		}
 
-        // Jangan ACK heartbeat lagi
-        if update.Type == pb.StateUpdate_HEARTBEAT {
-            continue
-        }
+		// Jangan ACK heartbeat lagi
+		if update.Type == pb.StateUpdate_HEARTBEAT {
+			continue
+		}
 
-        remote := crdt.NewPNCounter("")
-        remote.SetPositive(update.PositiveState)
-        remote.SetNegative(update.NegativeState)
+		remote := crdt.NewPNCounter("")
+		remote.SetPositive(update.PositiveState)
+		remote.SetNegative(update.NegativeState)
 
-        s.counter.Merge(remote)
-        s.clock.MergeMap(update.VectorClock)
+		s.counter.Merge(remote)
+		s.clock.MergeMap(update.VectorClock)
 
-        metrics.UpdateCounterValue(
-            s.nodeID,
-            s.counter.Value(),
-        )
-        metrics.IncGossipReceived(s.nodeID)
+		metrics.UpdateCounterValue(
+			s.nodeID,
+			s.counter.Value(),
+		)
+		metrics.IncGossipReceived(s.nodeID)
 
-        // kirim acknowledgement
-        ack := &pb.StateUpdate{
-            FromNodeId: s.nodeID,
-            Timestamp:  time.Now().Unix(),
-            Type:       pb.StateUpdate_HEARTBEAT,
-        }
+		// kirim acknowledgement
+		ack := &pb.StateUpdate{
+			FromNodeId: s.nodeID,
+			Timestamp:  time.Now().Unix(),
+			Type:       pb.StateUpdate_HEARTBEAT,
+		}
 
-        if err := stream.Send(ack); err != nil {
-            return err
-        }
-    }
+		if err := stream.Send(ack); err != nil {
+			return err
+		}
+	}
 }
 
 func (s *CounterService) Counter() *crdt.PNCounter {
-    return s.counter
+	return s.counter
 }
 
 func (s *CounterService) Clock() *crdt.VectorClock {
-    return s.clock
+	return s.clock
 }
 
 func (s *CounterService) Cluster() *cluster.Membership {
-    return s.cluster
+	return s.cluster
 }
