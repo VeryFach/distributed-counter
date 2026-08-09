@@ -539,6 +539,10 @@ Prometheus metrics:
 | counter_current_value          | Current counter value          |
 | gossip_messages_sent_total     | Total gossip messages sent     |
 | gossip_messages_received_total | Total gossip messages received |
+| recovery_retry_total           | Total retry recovery attempts   |
+| recovery_seed_failures_total   | Failed recovery attempts per seed node |
+| recovery_sync_duration_seconds | Duration of successful recovery sync |
+| recovery_in_progress           | Whether node is currently recovering |
 
 ---
 

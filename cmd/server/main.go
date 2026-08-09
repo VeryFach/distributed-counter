@@ -94,15 +94,20 @@ func main() {
 		zlog.Warn("Cluster bootstrap completed with no reachable seed nodes", zap.Error(err))
 	}
 
+	membership.SetRecovering(true)
+	metrics.SetRecoveryInProgress(cfg.NodeID, true)
 	if err := recoverStateFromSeedNodes(
 		cfg.NodeID,
 		localAddress,
 		cfg.SeedNodes,
+		membership,
 		counterSvc,
 		zlog,
 	); err != nil {
 		zlog.Warn("Cluster recovery completed without state sync", zap.Error(err))
 	}
+	membership.SetRecovering(false)
+	metrics.SetRecoveryInProgress(cfg.NodeID, false)
 
 	runtimeCtx, runtimeCancel := context.WithCancel(context.Background())
 	defer runtimeCancel()
@@ -340,78 +345,142 @@ func recoverStateFromSeedNodes(
 	nodeID string,
 	localAddress string,
 	seedNodes []string,
+	membership *cluster.Membership,
 	counterSvc *service.CounterService,
 	logger *zap.Logger,
 ) error {
 	var lastErr error
+	const (
+		maxAttempts        = 5
+		initialBackoff     = 250 * time.Millisecond
+		maxSeedDialTimeout = 2 * time.Second
+	)
 
-	for _, seedAddr := range seedNodes {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		conn, err := grpc.DialContext(
-			ctx,
-			seedAddr,
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
-			grpc.WithBlock(),
-		)
-		if err != nil {
+	uniqueSeeds := uniqueOrderedSeeds(seedNodes)
+	if len(uniqueSeeds) == 0 {
+		return fmt.Errorf("no seed nodes configured for recovery")
+	}
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		startIndex := attempt % len(uniqueSeeds)
+		orderedSeeds := rotateSeeds(uniqueSeeds, startIndex)
+		lastFailedSeed := ""
+
+		for _, seedAddr := range orderedSeeds {
+			syncStartedAt := time.Now()
+			ctx, cancel := context.WithTimeout(context.Background(), maxSeedDialTimeout)
+			conn, err := grpc.DialContext(
+				ctx,
+				seedAddr,
+				grpc.WithTransportCredentials(insecure.NewCredentials()),
+				grpc.WithBlock(),
+			)
+			if err != nil {
+				cancel()
+				lastErr = err
+				logger.Debug("Recovery seed unreachable", zap.String("seed", seedAddr), zap.Int("attempt", attempt+1), zap.Error(err))
+				metrics.IncRecoverySeedFailure(nodeID, seedAddr)
+				lastFailedSeed = seedAddr
+				continue
+			}
 			cancel()
-			lastErr = err
-			logger.Debug("Recovery seed unreachable", zap.String("seed", seedAddr), zap.Error(err))
-			continue
-		}
-		cancel()
 
-		client := pb.NewCounterServiceClient(conn)
-		syncCtx, syncCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		stream, err := client.SyncState(syncCtx)
-		if err != nil {
+			client := pb.NewCounterServiceClient(conn)
+			syncCtx, syncCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			stream, err := client.SyncState(syncCtx)
+			if err != nil {
+				syncCancel()
+				lastErr = err
+				logger.Debug("Recovery stream failed", zap.String("seed", seedAddr), zap.Int("attempt", attempt+1), zap.Error(err))
+				metrics.IncRecoverySeedFailure(nodeID, seedAddr)
+				lastFailedSeed = seedAddr
+				_ = conn.Close()
+				continue
+			}
+
+			if err := stream.Send(&pb.StateUpdate{
+				FromNodeId:    nodeID,
+				PositiveState: counterSvc.Counter().Positive(),
+				NegativeState: counterSvc.Counter().Negative(),
+				VectorClock:   counterSvc.Clock().State(),
+				Timestamp:     time.Now().Unix(),
+				Type:          pb.StateUpdate_FULL_STATE,
+			}); err != nil {
+				syncCancel()
+				lastErr = err
+				logger.Debug("Recovery send failed", zap.String("seed", seedAddr), zap.Int("attempt", attempt+1), zap.Error(err))
+				metrics.IncRecoverySeedFailure(nodeID, seedAddr)
+				lastFailedSeed = seedAddr
+				_ = conn.Close()
+				continue
+			}
+
+			response, err := stream.Recv()
+			if err != nil {
+				syncCancel()
+				lastErr = err
+				logger.Debug("Recovery receive failed", zap.String("seed", seedAddr), zap.Int("attempt", attempt+1), zap.Error(err))
+				metrics.IncRecoverySeedFailure(nodeID, seedAddr)
+				lastFailedSeed = seedAddr
+				_ = conn.Close()
+				continue
+			}
+
+			if len(response.PositiveState) > 0 || len(response.NegativeState) > 0 || len(response.VectorClock) > 0 {
+				remote := pbToPNCounter(nodeID, response.PositiveState, response.NegativeState)
+				counterSvc.Counter().Merge(remote)
+				counterSvc.Clock().MergeMap(response.VectorClock)
+				membership.AddOrUpdateMember(nodeID, localAddress, true, time.Now())
+				metrics.UpdateCounterValue(nodeID, counterSvc.Counter().Value())
+				metrics.ObserveRecoverySyncDuration(nodeID, seedAddr, time.Since(syncStartedAt).Seconds())
+				logger.Info("Recovered state from seed", zap.String("seed", seedAddr), zap.String("node", localAddress), zap.Int("attempt", attempt+1))
+				syncCancel()
+				_ = conn.Close()
+				return nil
+			}
+
 			syncCancel()
-			lastErr = err
-			logger.Debug("Recovery stream failed", zap.String("seed", seedAddr), zap.Error(err))
 			_ = conn.Close()
-			continue
 		}
 
-		if err := stream.Send(&pb.StateUpdate{
-			FromNodeId:    nodeID,
-			PositiveState: counterSvc.Counter().Positive(),
-			NegativeState: counterSvc.Counter().Negative(),
-			VectorClock:   counterSvc.Clock().State(),
-			Timestamp:     time.Now().Unix(),
-			Type:          pb.StateUpdate_FULL_STATE,
-		}); err != nil {
-			syncCancel()
-			lastErr = err
-			logger.Debug("Recovery send failed", zap.String("seed", seedAddr), zap.Error(err))
-			_ = conn.Close()
-			continue
+		if attempt < maxAttempts-1 {
+			backoff := initialBackoff * time.Duration(1<<attempt)
+			if backoff > 3*time.Second {
+				backoff = 3 * time.Second
+			}
+			logger.Debug("Recovery retry backoff", zap.Duration("sleep", backoff), zap.Int("attempt", attempt+1))
+			if lastFailedSeed != "" {
+				metrics.IncRecoveryRetry(nodeID, lastFailedSeed)
+			}
+			time.Sleep(backoff)
 		}
-
-		response, err := stream.Recv()
-		if err != nil {
-			syncCancel()
-			lastErr = err
-			logger.Debug("Recovery receive failed", zap.String("seed", seedAddr), zap.Error(err))
-			_ = conn.Close()
-			continue
-		}
-
-		if len(response.PositiveState) > 0 || len(response.NegativeState) > 0 || len(response.VectorClock) > 0 {
-			remote := pbToPNCounter(nodeID, response.PositiveState, response.NegativeState)
-			counterSvc.Counter().Merge(remote)
-			counterSvc.Clock().MergeMap(response.VectorClock)
-			metrics.UpdateCounterValue(nodeID, counterSvc.Counter().Value())
-			logger.Info("Recovered state from seed", zap.String("seed", seedAddr), zap.String("node", localAddress))
-			syncCancel()
-			_ = conn.Close()
-			return nil
-		}
-
-		syncCancel()
-		_ = conn.Close()
 	}
 
 	return lastErr
+}
+
+func uniqueOrderedSeeds(seedNodes []string) []string {
+	seen := make(map[string]struct{})
+	ordered := make([]string, 0, len(seedNodes))
+	for _, seed := range seedNodes {
+		if _, exists := seen[seed]; exists {
+			continue
+		}
+		seen[seed] = struct{}{}
+		ordered = append(ordered, seed)
+	}
+	return ordered
+}
+
+func rotateSeeds(seedNodes []string, offset int) []string {
+	if len(seedNodes) == 0 {
+		return nil
+	}
+	rotated := make([]string, 0, len(seedNodes))
+	for i := 0; i < len(seedNodes); i++ {
+		rotated = append(rotated, seedNodes[(offset+i)%len(seedNodes)])
+	}
+	return rotated
 }
 
 func pbToPNCounter(nodeID string, positive, negative map[string]int64) *crdt.PNCounter {

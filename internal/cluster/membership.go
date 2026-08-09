@@ -14,9 +14,10 @@ type Member struct {
 }
 
 type Membership struct {
-	mu      sync.RWMutex
-	nodeID  string
-	members map[string]*Member
+	mu         sync.RWMutex
+	nodeID     string
+	members    map[string]*Member
+	recovering bool
 }
 
 func NewMembership(nodeID string) *Membership {
@@ -87,6 +88,20 @@ func (m *Membership) MarkStale(threshold time.Duration) []string {
 	}
 
 	return stale
+}
+
+func (m *Membership) SetRecovering(recovering bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.recovering = recovering
+}
+
+func (m *Membership) IsRecovering() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	return m.recovering
 }
 
 func (m *Membership) GetMembers() []*Member {
