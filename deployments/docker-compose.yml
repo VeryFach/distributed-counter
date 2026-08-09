@@ -52,6 +52,7 @@ services:
     image: prom/prometheus:latest
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus-rules.yml:/etc/prometheus/rules/prometheus-rules.yml
     ports:
       - "9090:9090"
     networks:
@@ -65,7 +66,8 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=admin
     volumes:
       - ./grafana-provisioning/datasources:/etc/grafana/provisioning/datasources
-      - ./grafana-dashboards:/etc/grafana/provisioning/dashboards
+      - ./grafana-provisioning/dashboards:/etc/grafana/provisioning/dashboards
+      - ./grafana-dashboards:/var/lib/grafana/dashboards
     networks:
       - counter-net
 
