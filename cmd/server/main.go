@@ -18,6 +18,7 @@ import (
 	pb "github.com/VeryFach/distributed-counter/api/proto"
 	"github.com/VeryFach/distributed-counter/internal/cluster"
 	"github.com/VeryFach/distributed-counter/internal/config"
+	"github.com/VeryFach/distributed-counter/internal/crdt"
 	"github.com/VeryFach/distributed-counter/internal/gossip"
 	"github.com/VeryFach/distributed-counter/internal/metrics"
 	"github.com/VeryFach/distributed-counter/internal/server"
@@ -91,6 +92,16 @@ func main() {
 
 	if err := joinCluster(cfg.NodeID, localAddress, cfg.SeedNodes, membership, zlog); err != nil {
 		zlog.Warn("Cluster bootstrap completed with no reachable seed nodes", zap.Error(err))
+	}
+
+	if err := recoverStateFromSeedNodes(
+		cfg.NodeID,
+		localAddress,
+		cfg.SeedNodes,
+		counterSvc,
+		zlog,
+	); err != nil {
+		zlog.Warn("Cluster recovery completed without state sync", zap.Error(err))
 	}
 
 	runtimeCtx, runtimeCancel := context.WithCancel(context.Background())
@@ -323,4 +334,89 @@ func runFailureDetectionLoop(
 			}
 		}
 	}
+}
+
+func recoverStateFromSeedNodes(
+	nodeID string,
+	localAddress string,
+	seedNodes []string,
+	counterSvc *service.CounterService,
+	logger *zap.Logger,
+) error {
+	var lastErr error
+
+	for _, seedAddr := range seedNodes {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		conn, err := grpc.DialContext(
+			ctx,
+			seedAddr,
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithBlock(),
+		)
+		if err != nil {
+			cancel()
+			lastErr = err
+			logger.Debug("Recovery seed unreachable", zap.String("seed", seedAddr), zap.Error(err))
+			continue
+		}
+		cancel()
+
+		client := pb.NewCounterServiceClient(conn)
+		syncCtx, syncCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		stream, err := client.SyncState(syncCtx)
+		if err != nil {
+			syncCancel()
+			lastErr = err
+			logger.Debug("Recovery stream failed", zap.String("seed", seedAddr), zap.Error(err))
+			_ = conn.Close()
+			continue
+		}
+
+		if err := stream.Send(&pb.StateUpdate{
+			FromNodeId:    nodeID,
+			PositiveState: counterSvc.Counter().Positive(),
+			NegativeState: counterSvc.Counter().Negative(),
+			VectorClock:   counterSvc.Clock().State(),
+			Timestamp:     time.Now().Unix(),
+			Type:          pb.StateUpdate_FULL_STATE,
+		}); err != nil {
+			syncCancel()
+			lastErr = err
+			logger.Debug("Recovery send failed", zap.String("seed", seedAddr), zap.Error(err))
+			_ = conn.Close()
+			continue
+		}
+
+		response, err := stream.Recv()
+		if err != nil {
+			syncCancel()
+			lastErr = err
+			logger.Debug("Recovery receive failed", zap.String("seed", seedAddr), zap.Error(err))
+			_ = conn.Close()
+			continue
+		}
+
+		if len(response.PositiveState) > 0 || len(response.NegativeState) > 0 || len(response.VectorClock) > 0 {
+			remote := pbToPNCounter(nodeID, response.PositiveState, response.NegativeState)
+			counterSvc.Counter().Merge(remote)
+			counterSvc.Clock().MergeMap(response.VectorClock)
+			metrics.UpdateCounterValue(nodeID, counterSvc.Counter().Value())
+			logger.Info("Recovered state from seed", zap.String("seed", seedAddr), zap.String("node", localAddress))
+			syncCancel()
+			_ = conn.Close()
+			return nil
+		}
+
+		syncCancel()
+		_ = conn.Close()
+	}
+
+	return lastErr
+}
+
+func pbToPNCounter(nodeID string, positive, negative map[string]int64) *crdt.PNCounter {
+	remote := crdt.NewPNCounter(nodeID)
+	remote.SetPositive(positive)
+	remote.SetNegative(negative)
+	return remote
 }

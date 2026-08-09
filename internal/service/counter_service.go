@@ -229,11 +229,14 @@ func (s *CounterService) SyncState(
 		)
 		metrics.IncGossipReceived(s.nodeID)
 
-		// kirim acknowledgement
+		// balas dengan full state supaya peer bisa merge atau recovery
 		ack := &pb.StateUpdate{
-			FromNodeId: s.nodeID,
-			Timestamp:  time.Now().Unix(),
-			Type:       pb.StateUpdate_HEARTBEAT,
+			FromNodeId:    s.nodeID,
+			PositiveState: s.counter.Positive(),
+			NegativeState: s.counter.Negative(),
+			VectorClock:   s.clock.State(),
+			Timestamp:     time.Now().Unix(),
+			Type:          pb.StateUpdate_FULL_STATE,
 		}
 
 		if err := stream.Send(ack); err != nil {
