@@ -3,10 +3,10 @@ services:
     build:
       context: ..
       dockerfile: deployments/Dockerfile
-    environment:
-      - NODE_ID=node-a
-      - GRPC_PORT=50051
-      - SEED_NODES=node-b:50052,node-c:50053
+    command:
+      - ./counter-server
+      - -config
+      - configs/node1.yaml
     ports:
       - "50051:50051"
       - "8080:8080" # Prometheus metrics
@@ -17,13 +17,13 @@ services:
     build:
       context: ..
       dockerfile: deployments/Dockerfile
-    environment:
-      - NODE_ID=node-b
-      - GRPC_PORT=50052
-      - SEED_NODES=node-a:50051,node-c:50053
+    command:
+      - ./counter-server
+      - -config
+      - configs/node2.yaml
     ports:
       - "50052:50052"
-      - "8081:8080"
+      - "8081:8081"
     networks:
       - counter-net
 
@@ -31,13 +31,13 @@ services:
     build:
       context: ..
       dockerfile: deployments/Dockerfile
-    environment:
-      - NODE_ID=node-c
-      - GRPC_PORT=50053
-      - SEED_NODES=node-a:50051,node-b:50052
+    command:
+      - ./counter-server
+      - -config
+      - configs/node3.yaml
     ports:
       - "50053:50053"
-      - "8082:8080"
+      - "8082:8082"
     networks:
       - counter-net
 
@@ -52,6 +52,7 @@ services:
     image: prom/prometheus:latest
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus-rules.yml:/etc/prometheus/rules/prometheus-rules.yml
     ports:
       - "9090:9090"
     networks:
@@ -65,7 +66,8 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=admin
     volumes:
       - ./grafana-provisioning/datasources:/etc/grafana/provisioning/datasources
-      - ./grafana-dashboards:/etc/grafana/provisioning/dashboards
+      - ./grafana-provisioning/dashboards:/etc/grafana/provisioning/dashboards
+      - ./grafana-dashboards:/var/lib/grafana/dashboards
     networks:
       - counter-net
 

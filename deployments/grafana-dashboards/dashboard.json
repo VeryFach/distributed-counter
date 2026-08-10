@@ -12,25 +12,15 @@
             ]
         },
         {
-            "title": "gRPC Request Rate",
-            "type": "graph",
-            "targets": [
-                {
-                    "expr": "rate(grpc_requests_total[5m])",
-                    "legendFormat": "{{method}}"
-                }
-            ]
-        },
-        {
             "title": "Gossip Messages per Second",
             "type": "graph",
             "targets": [
                 {
-                    "expr": "rate(gossip_messages_sent[1m])",
+                    "expr": "rate(gossip_messages_sent_total[1m])",
                     "legendFormat": "Sent"
                 },
                 {
-                    "expr": "rate(gossip_messages_received[1m])",
+                    "expr": "rate(gossip_messages_received_total[1m])",
                     "legendFormat": "Received"
                 }
             ]
@@ -40,8 +30,48 @@
             "type": "stat",
             "targets": [
                 {
-                    "expr": "cluster_node_count",
+                    "expr": "count(up{job=\"distributed-counter\"})",
                     "legendFormat": "Active Nodes"
+                }
+            ]
+        },
+        {
+            "title": "Recovery Retry Rate",
+            "type": "graph",
+            "targets": [
+                {
+                    "expr": "sum by (node_id) (rate(recovery_retry_total[5m]))",
+                    "legendFormat": "{{node_id}}"
+                }
+            ]
+        },
+        {
+            "title": "Recovery Seed Failures",
+            "type": "graph",
+            "targets": [
+                {
+                    "expr": "sum by (node_id, seed_node) (rate(recovery_seed_failures_total[5m]))",
+                    "legendFormat": "{{node_id}} / {{seed_node}}"
+                }
+            ]
+        },
+        {
+            "title": "Recovery Sync p95",
+            "type": "graph",
+            "targets": [
+                {
+                    "expr": "histogram_quantile(0.95, sum by (le, node_id, seed_node) (rate(recovery_sync_duration_seconds_bucket[5m])))",
+                    "legendFormat": "{{node_id}} / {{seed_node}}"
+                }
+            ]
+        },
+        {
+            "title": "Recovery In Progress",
+            "type": "stat",
+            "targets": [
+                {
+                    "expr": "recovery_in_progress",
+                    "legendFormat": "Recovering"
                 }
             ]
         }
