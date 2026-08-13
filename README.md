@@ -297,6 +297,10 @@ http_port: 8081
 gossip_interval: 5
 heartbeat_interval: 3
 heartbeat_timeout: 10
+persistence_enabled: true
+redis_addr: redis:6379
+redis_password: ""
+redis_db: 0
 
 seed_nodes:
   - node-a:50051
@@ -314,6 +318,10 @@ http_port: 8082
 gossip_interval: 5
 heartbeat_interval: 3
 heartbeat_timeout: 10
+persistence_enabled: true
+redis_addr: redis:6379
+redis_password: ""
+redis_db: 0
 
 seed_nodes:
   - node-a:50051

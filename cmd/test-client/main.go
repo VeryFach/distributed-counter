@@ -16,6 +16,7 @@ func main() {
 	delta := flag.Int("delta", 1, "increment/decrement delta")
 	decrement := flag.Bool("decrement", false, "decrement instead of increment")
 	reset := flag.Bool("reset", false, "reset the counter before applying the operation")
+	get := flag.Bool("get", false, "read the current value without mutating")
 	flag.Parse()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -38,6 +39,15 @@ func main() {
 			log.Fatalf("❌ Reset error: %v", err)
 		}
 		log.Printf("✅ Reset done, value now %d", resp.CurrentValue)
+		return
+	}
+
+	if *get {
+		resp, err := client.GetValue(ctx, &counter.GetValueRequest{})
+		if err != nil {
+			log.Fatalf("❌ GetValue error: %v", err)
+		}
+		log.Printf("✅ Value: %d (version %s)", resp.CurrentValue, resp.Version)
 		return
 	}
 

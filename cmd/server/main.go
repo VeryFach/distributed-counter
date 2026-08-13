@@ -59,6 +59,7 @@ func main() {
 
 	heartbeatInterval := time.Duration(cfg.HeartbeatInterval) * time.Second
 	staleTimeout := time.Duration(cfg.HeartbeatTimeout) * time.Second
+	gossipInterval := time.Duration(cfg.GossipInterval) * time.Second
 
 	localAddress := cfg.AdvertiseAddress
 	if localAddress == "" {
@@ -103,6 +104,7 @@ func main() {
 		counterSvc.Counter(),
 		counterSvc.Clock(),
 		membership,
+		gossipInterval,
 		zlog,
 	)
 

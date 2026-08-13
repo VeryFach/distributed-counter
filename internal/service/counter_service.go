@@ -93,6 +93,13 @@ func (s *CounterService) Reset(ctx context.Context, req *pb.ResetRequest) (*pb.C
 	s.counter.Reset()
 	s.clock.Reset()
 
+	// Clear per-sender sync baselines: the vector clock is now zero, so any
+	// retained baseline would make delta gossip skip everything and leave
+	// this node unable to exchange state until a slow reconciliation.
+	s.mu.Lock()
+	s.lastSyncClock = make(map[string]map[string]int64)
+	s.mu.Unlock()
+
 	metrics.UpdateCounterValue(s.nodeID, s.counter.Value())
 
 	s.persist()

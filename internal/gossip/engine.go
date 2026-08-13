@@ -16,11 +16,12 @@ import (
 )
 
 type GossipEngine struct {
-	nodeID  string
-	logger  *zap.Logger
-	counter *crdt.PNCounter
-	cluster *cluster.Membership
-	clock   *crdt.VectorClock
+	nodeID   string
+	logger   *zap.Logger
+	counter  *crdt.PNCounter
+	cluster  *cluster.Membership
+	clock    *crdt.VectorClock
+	interval time.Duration
 
 	// gRPC connections pool
 	connections map[string]counter.CounterServiceClient
@@ -47,9 +48,14 @@ func NewGossipEngine(
 	pnCounter *crdt.PNCounter,
 	clock *crdt.VectorClock,
 	cluster *cluster.Membership,
+	interval time.Duration,
 	logger *zap.Logger,
 ) *GossipEngine {
 	ctx, cancel := context.WithCancel(context.Background())
+
+	if interval <= 0 {
+		interval = 5 * time.Second
+	}
 
 	return &GossipEngine{
 		nodeID:           nodeID,
@@ -57,6 +63,7 @@ func NewGossipEngine(
 		clock:            clock,
 		cluster:          cluster,
 		logger:           logger,
+		interval:         interval,
 		connections:      make(map[string]counter.CounterServiceClient),
 		streams:          make(map[string]counter.CounterService_SyncStateClient),
 		lastSync:         make(map[string]map[string]int64),
@@ -68,10 +75,13 @@ func NewGossipEngine(
 
 // Start starts the gossip protocol
 func (g *GossipEngine) Start() {
-	g.logger.Info("Starting gossip engine", zap.String("node_id", g.nodeID))
+	g.logger.Info("Starting gossip engine",
+		zap.String("node_id", g.nodeID),
+		zap.Duration("interval", g.interval),
+	)
 
 	// Periodic gossip with random peers
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(g.interval)
 	defer ticker.Stop()
 
 	for {
@@ -108,7 +118,12 @@ func (g *GossipEngine) gossipToPeer(peer *cluster.Member) {
 
 	g.mu.Lock()
 	g.round++
-	fullSync := g.round%g.fullSyncInterval == 0
+	// Send the full state when our delta baseline is stale. This happens
+	// after a local Reset or restart cleared the vector clock while the
+	// per-peer baseline kept its old (higher) version; a pure delta would
+	// then skip everything and the peer would never catch up.
+	staleBaseline := crdt.ClockNewerThan(base, myClock)
+	fullSync := g.round%g.fullSyncInterval == 0 || staleBaseline
 	g.mu.Unlock()
 
 	var update *counter.StateUpdate

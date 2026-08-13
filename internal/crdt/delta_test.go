@@ -66,6 +66,33 @@ func TestClockNewerThan(t *testing.T) {
 	assert.False(t, ClockNewerThan(nil, nil))
 }
 
+func TestClockNewerThanDetectsStaleBaseline(t *testing.T) {
+	// A stale baseline is ahead of the current clock, e.g. after a local
+	// Reset cleared the vector clock while the per-peer baseline kept its
+	// old (higher) version. This must be detected so gossip falls back to
+	// a full-state reconciliation.
+	base := map[string]int64{"a": 5}
+	resetClock := map[string]int64{}
+
+	assert.True(t, ClockNewerThan(base, resetClock))
+
+	// A healthy baseline never exceeds the current clock.
+	current := map[string]int64{"a": 5, "b": 3}
+	healthyBase := map[string]int64{"a": 5, "b": 3}
+	assert.False(t, ClockNewerThan(healthyBase, current))
+}
+
+func TestDeltaFromEmptyWhenBaselineStale(t *testing.T) {
+	positive := map[string]int64{"a": 7}
+	clock := map[string]int64{"a": 1}
+	// base is ahead of the clock -> nothing qualifies as a delta.
+	base := map[string]int64{"a": 9}
+
+	_, _, deltaClock := DeltaFrom(positive, nil, clock, base)
+
+	assert.Empty(t, deltaClock)
+}
+
 func TestPNCounterReset(t *testing.T) {
 	c := NewPNCounter("node-a")
 	c.Increment(10)

@@ -38,6 +38,9 @@ func Load(configPath string) (*Config, error) {
 		return nil, err
 	}
 
+	if cfg.GossipInterval <= 0 {
+		cfg.GossipInterval = int((5 * time.Second).Seconds())
+	}
 	if cfg.HeartbeatInterval <= 0 {
 		cfg.HeartbeatInterval = int((3 * time.Second).Seconds())
 	}
