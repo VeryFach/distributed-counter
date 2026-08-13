@@ -21,6 +21,7 @@ import (
 	"github.com/VeryFach/distributed-counter/internal/crdt"
 	"github.com/VeryFach/distributed-counter/internal/gossip"
 	"github.com/VeryFach/distributed-counter/internal/metrics"
+	"github.com/VeryFach/distributed-counter/internal/persistence"
 	"github.com/VeryFach/distributed-counter/internal/server"
 	"github.com/VeryFach/distributed-counter/internal/service"
 	"github.com/VeryFach/distributed-counter/pkg/logger"
@@ -66,6 +67,29 @@ func main() {
 
 	// Create service
 	counterSvc := service.NewCounterService(cfg.NodeID, cfg.GRPCPort, zlog)
+
+	// Optional Redis persistence so the counter survives node restarts.
+	var store persistence.Store
+	if cfg.PersistenceEnabled {
+		store, err = persistence.NewRedisStore(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
+		if err != nil {
+			zlog.Warn("Redis unavailable, running without persistence", zap.Error(err))
+		} else {
+			zlog.Info("Persistence enabled",
+				zap.String("redis_addr", cfg.RedisAddr),
+				zap.Int("redis_db", cfg.RedisDB),
+			)
+			defer store.Close()
+		}
+	}
+	if store != nil {
+		counterSvc.SetStore(store)
+		if persisted, loadErr := store.Load(cfg.NodeID); loadErr != nil {
+			zlog.Warn("Failed to load persisted state", zap.Error(loadErr))
+		} else if persisted != nil {
+			counterSvc.Restore(persisted)
+		}
+	}
 
 	membership := cluster.NewMembership(
 		cfg.NodeID,

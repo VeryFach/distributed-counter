@@ -11,6 +11,7 @@ service CounterService {
     rpc Decrement(DecrementRequest) returns (CounterResponse);
     rpc GetValue(GetValueRequest) returns (CounterResponse);
     rpc GetNodeInfo(GetNodeInfoRequest) returns (NodeInfo);
+    rpc Reset(ResetRequest) returns (CounterResponse);
     
     // Cluster Communication - Bidirectional Streaming
     rpc SyncState(stream StateUpdate) returns (stream StateUpdate);
@@ -35,6 +36,10 @@ message DecrementRequest {
 
 message GetValueRequest {
     string node_id = 1;  // optional: get value from specific node
+}
+
+message ResetRequest {
+    string node_id = 1;  // optional: which node's counter to reset
 }
 
 message GetNodeInfoRequest {}
@@ -73,6 +78,10 @@ message StateUpdate {
     }
 
     UpdateType type = 6;
+
+    // Version of the sender's state (max vector clock value). Lets the
+    // receiver skip redundant merges and enables delta-only gossip.
+    int64 last_sync_version = 7;
 }
 
 // Membership Messages

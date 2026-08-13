@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	"math/rand"
 	"sync"
 	"time"
 )
@@ -127,16 +128,23 @@ func (m *Membership) GetRandomPeers(count int) []*Member {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	// Simple implementation - return first N active members
+	// Collect all active peers, then shuffle so gossip spreads evenly
+	// instead of always hitting the first N members.
 	peers := []*Member{}
 	for _, member := range m.members {
 		if member.ID != m.nodeID && member.IsActive {
 			peers = append(peers, member)
-			if len(peers) >= count {
-				break
-			}
 		}
 	}
+
+	rand.Shuffle(len(peers), func(i, j int) {
+		peers[i], peers[j] = peers[j], peers[i]
+	})
+
+	if len(peers) > count {
+		peers = peers[:count]
+	}
+
 	return peers
 }
 

@@ -7,12 +7,12 @@ import (
 
 // PNCounter implements a Positive-Negative Counter (CRDT)
 type PNCounter struct {
-    mu sync.RWMutex
+	mu sync.RWMutex
 
-    positive map[string]int64
-    negative map[string]int64
+	positive map[string]int64
+	negative map[string]int64
 
-    nodeID string
+	nodeID string
 }
 
 func NewPNCounter(nodeID string) *PNCounter {
@@ -24,55 +24,64 @@ func NewPNCounter(nodeID string) *PNCounter {
 }
 
 func (p *PNCounter) Increment(delta int64) {
-    p.mu.Lock()
-    defer p.mu.Unlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
-    p.positive[p.nodeID] += delta
+	p.positive[p.nodeID] += delta
 }
 
 func (p *PNCounter) Decrement(delta int64) {
-    p.mu.Lock()
-    defer p.mu.Unlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
-    p.negative[p.nodeID] += delta
+	p.negative[p.nodeID] += delta
+}
+
+// Reset clears all per-replica counts back to zero.
+func (p *PNCounter) Reset() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.positive = map[string]int64{}
+	p.negative = map[string]int64{}
 }
 
 func (p *PNCounter) Value() int64 {
-    p.mu.RLock()
-    defer p.mu.RUnlock()
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 
-    var pos, neg int64
+	var pos, neg int64
 
-    for _, v := range p.positive {
-        pos += v
-    }
+	for _, v := range p.positive {
+		pos += v
+	}
 
-    for _, v := range p.negative {
-        neg += v
-    }
+	for _, v := range p.negative {
+		neg += v
+	}
 
-    return pos - neg
+	return pos - neg
 }
 
 // Merge implements CRDT merge operation
 func (p *PNCounter) Merge(other *PNCounter) {
-    p.mu.Lock()
-    defer p.mu.Unlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
-    other.mu.RLock()
-    defer other.mu.RUnlock()
+	other.mu.RLock()
+	defer other.mu.RUnlock()
 
-    for node, v := range other.positive {
-        if v > p.positive[node] {
-            p.positive[node] = v
-        }
-    }
+	for node, v := range other.positive {
+		if v > p.positive[node] {
+			p.positive[node] = v
+		}
+	}
 
-    for node, v := range other.negative {
-        if v > p.negative[node] {
-            p.negative[node] = v
-        }
-    }
+	for node, v := range other.negative {
+		if v > p.negative[node] {
+			p.negative[node] = v
+		}
+	}
 }
 
 func (p *PNCounter) MarshalJSON() ([]byte, error) {
@@ -85,43 +94,43 @@ func (p *PNCounter) MarshalJSON() ([]byte, error) {
 }
 
 func (p *PNCounter) SetPositive(state map[string]int64) {
-    p.mu.Lock()
-    defer p.mu.Unlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
-    p.positive = make(map[string]int64)
-    for k, v := range state {
-        p.positive[k] = v
-    }
+	p.positive = make(map[string]int64)
+	for k, v := range state {
+		p.positive[k] = v
+	}
 }
 
 func (p *PNCounter) SetNegative(state map[string]int64) {
-    p.mu.Lock()
-    defer p.mu.Unlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
-    p.negative = make(map[string]int64)
-    for k, v := range state {
-        p.negative[k] = v
-    }
+	p.negative = make(map[string]int64)
+	for k, v := range state {
+		p.negative[k] = v
+	}
 }
 
 func (p *PNCounter) Positive() map[string]int64 {
-    p.mu.RLock()
-    defer p.mu.RUnlock()
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 
-    res := make(map[string]int64)
-    for k, v := range p.positive {
-        res[k] = v
-    }
-    return res
+	res := make(map[string]int64)
+	for k, v := range p.positive {
+		res[k] = v
+	}
+	return res
 }
 
 func (p *PNCounter) Negative() map[string]int64 {
-    p.mu.RLock()
-    defer p.mu.RUnlock()
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 
-    res := make(map[string]int64)
-    for k, v := range p.negative {
-        res[k] = v
-    }
-    return res
+	res := make(map[string]int64)
+	for k, v := range p.negative {
+		res[k] = v
+	}
+	return res
 }

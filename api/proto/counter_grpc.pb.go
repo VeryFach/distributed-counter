@@ -23,6 +23,7 @@ const (
 	CounterService_Decrement_FullMethodName   = "/counter.CounterService/Decrement"
 	CounterService_GetValue_FullMethodName    = "/counter.CounterService/GetValue"
 	CounterService_GetNodeInfo_FullMethodName = "/counter.CounterService/GetNodeInfo"
+	CounterService_Reset_FullMethodName       = "/counter.CounterService/Reset"
 	CounterService_SyncState_FullMethodName   = "/counter.CounterService/SyncState"
 	CounterService_JoinCluster_FullMethodName = "/counter.CounterService/JoinCluster"
 	CounterService_Heartbeat_FullMethodName   = "/counter.CounterService/Heartbeat"
@@ -39,6 +40,7 @@ type CounterServiceClient interface {
 	Decrement(ctx context.Context, in *DecrementRequest, opts ...grpc.CallOption) (*CounterResponse, error)
 	GetValue(ctx context.Context, in *GetValueRequest, opts ...grpc.CallOption) (*CounterResponse, error)
 	GetNodeInfo(ctx context.Context, in *GetNodeInfoRequest, opts ...grpc.CallOption) (*NodeInfo, error)
+	Reset(ctx context.Context, in *ResetRequest, opts ...grpc.CallOption) (*CounterResponse, error)
 	// Cluster Communication - Bidirectional Streaming
 	SyncState(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[StateUpdate, StateUpdate], error)
 	// Membership Management - Server Streaming
@@ -88,6 +90,16 @@ func (c *counterServiceClient) GetNodeInfo(ctx context.Context, in *GetNodeInfoR
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(NodeInfo)
 	err := c.cc.Invoke(ctx, CounterService_GetNodeInfo_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *counterServiceClient) Reset(ctx context.Context, in *ResetRequest, opts ...grpc.CallOption) (*CounterResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CounterResponse)
+	err := c.cc.Invoke(ctx, CounterService_Reset_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -147,6 +159,7 @@ type CounterServiceServer interface {
 	Decrement(context.Context, *DecrementRequest) (*CounterResponse, error)
 	GetValue(context.Context, *GetValueRequest) (*CounterResponse, error)
 	GetNodeInfo(context.Context, *GetNodeInfoRequest) (*NodeInfo, error)
+	Reset(context.Context, *ResetRequest) (*CounterResponse, error)
 	// Cluster Communication - Bidirectional Streaming
 	SyncState(grpc.BidiStreamingServer[StateUpdate, StateUpdate]) error
 	// Membership Management - Server Streaming
@@ -173,6 +186,9 @@ func (UnimplementedCounterServiceServer) GetValue(context.Context, *GetValueRequ
 }
 func (UnimplementedCounterServiceServer) GetNodeInfo(context.Context, *GetNodeInfoRequest) (*NodeInfo, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetNodeInfo not implemented")
+}
+func (UnimplementedCounterServiceServer) Reset(context.Context, *ResetRequest) (*CounterResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Reset not implemented")
 }
 func (UnimplementedCounterServiceServer) SyncState(grpc.BidiStreamingServer[StateUpdate, StateUpdate]) error {
 	return status.Errorf(codes.Unimplemented, "method SyncState not implemented")
@@ -276,6 +292,24 @@ func _CounterService_GetNodeInfo_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CounterService_Reset_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CounterServiceServer).Reset(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CounterService_Reset_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CounterServiceServer).Reset(ctx, req.(*ResetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _CounterService_SyncState_Handler(srv interface{}, stream grpc.ServerStream) error {
 	return srv.(CounterServiceServer).SyncState(&grpc.GenericServerStream[StateUpdate, StateUpdate]{ServerStream: stream})
 }
@@ -334,6 +368,10 @@ var CounterService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetNodeInfo",
 			Handler:    _CounterService_GetNodeInfo_Handler,
+		},
+		{
+			MethodName: "Reset",
+			Handler:    _CounterService_Reset_Handler,
 		},
 		{
 			MethodName: "Heartbeat",

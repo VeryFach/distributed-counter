@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log"
 	"time"
 
@@ -11,10 +12,16 @@ import (
 )
 
 func main() {
+	addr := flag.String("addr", "127.0.0.1:50051", "server address")
+	delta := flag.Int("delta", 1, "increment/decrement delta")
+	decrement := flag.Bool("decrement", false, "decrement instead of increment")
+	reset := flag.Bool("reset", false, "reset the counter before applying the operation")
+	flag.Parse()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	conn, err := grpc.DialContext(ctx, "127.0.0.1:50051",
+	conn, err := grpc.DialContext(ctx, *addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithBlock())
 	if err != nil {
@@ -24,9 +31,30 @@ func main() {
 	log.Println("✅ Connected!")
 
 	client := counter.NewCounterServiceClient(conn)
-	resp, err := client.GetNodeInfo(ctx, &counter.GetNodeInfoRequest{})
+
+	if *reset {
+		resp, err := client.Reset(ctx, &counter.ResetRequest{})
+		if err != nil {
+			log.Fatalf("❌ Reset error: %v", err)
+		}
+		log.Printf("✅ Reset done, value now %d", resp.CurrentValue)
+		return
+	}
+
+	var resp *counter.CounterResponse
+	if *decrement {
+		resp, err = client.Decrement(ctx, &counter.DecrementRequest{Delta: int32(*delta)})
+	} else {
+		resp, err = client.Increment(ctx, &counter.IncrementRequest{Delta: int32(*delta)})
+	}
+	if err != nil {
+		log.Fatalf("❌ Counter update error: %v", err)
+	}
+	log.Printf("✅ New value: %d (version %s)", resp.CurrentValue, resp.Version)
+
+	nodeInfo, err := client.GetNodeInfo(ctx, &counter.GetNodeInfoRequest{})
 	if err != nil {
 		log.Fatalf("❌ GetNodeInfo error: %v", err)
 	}
-	log.Printf("✅ NodeInfo: %+v", resp)
+	log.Printf("✅ NodeInfo: %+v", nodeInfo)
 }

@@ -7,15 +7,19 @@ import (
 )
 
 type Config struct {
-	NodeID            string   `mapstructure:"node_id"`
-	GRPCPort          int      `mapstructure:"grpc_port"`
-	MetricsPort       int      `mapstructure:"metrics_port"`
-	HTTPPort          int      `mapstructure:"http_port"`
-	AdvertiseAddress  string   `mapstructure:"advertise_address"`
-	SeedNodes         []string `mapstructure:"seed_nodes"`
-	GossipInterval    int      `mapstructure:"gossip_interval"`
-	HeartbeatInterval int      `mapstructure:"heartbeat_interval"`
-	HeartbeatTimeout  int      `mapstructure:"heartbeat_timeout"`
+	NodeID             string   `mapstructure:"node_id"`
+	GRPCPort           int      `mapstructure:"grpc_port"`
+	MetricsPort        int      `mapstructure:"metrics_port"`
+	HTTPPort           int      `mapstructure:"http_port"`
+	AdvertiseAddress   string   `mapstructure:"advertise_address"`
+	SeedNodes          []string `mapstructure:"seed_nodes"`
+	GossipInterval     int      `mapstructure:"gossip_interval"`
+	HeartbeatInterval  int      `mapstructure:"heartbeat_interval"`
+	HeartbeatTimeout   int      `mapstructure:"heartbeat_timeout"`
+	PersistenceEnabled bool     `mapstructure:"persistence_enabled"`
+	RedisAddr          string   `mapstructure:"redis_addr"`
+	RedisPassword      string   `mapstructure:"redis_password"`
+	RedisDB            int      `mapstructure:"redis_db"`
 }
 
 func Load(configPath string) (*Config, error) {

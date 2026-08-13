@@ -20,10 +20,14 @@ Sistem menggunakan:
 | CRDT-based Counter    | Menggunakan state-based `PNCounter` yang conflict-free              |
 | gRPC Communication    | Unary RPC, Server Streaming, dan Bidirectional Streaming            |
 | Gossip Protocol       | Sinkronisasi state secara periodik antar node                       |
+| Delta Gossip          | Hanya mengirim perubahan (delta) antar node, bukan full state       |
+| Versioned State       | Melacak `LastSyncVersion` per peer agar tidak mengirim state ganda  |
 | Service Discovery     | Bootstrap node menggunakan seed nodes                               |
 | Membership Management | Tracking active node dengan heartbeat                               |
 | Vector Clock          | Deteksi causal ordering dan conflict                                |
 | Fault Tolerance       | Tetap berjalan meskipun terjadi node failure atau network partition |
+| State Persistence     | Simpan state CRDT ke Redis agar counter survive restart             |
+| Reset RPC             | Reset counter untuk testing yang deterministik                      |
 | Prometheus Metrics    | Monitoring counter dan aktivitas gossip                             |
 
 ---
@@ -272,6 +276,10 @@ http_port: 8080
 gossip_interval: 5
 heartbeat_interval: 3
 heartbeat_timeout: 10
+persistence_enabled: true
+redis_addr: redis:6379
+redis_password: ""
+redis_db: 0
 
 seed_nodes:
   - node-b:50052

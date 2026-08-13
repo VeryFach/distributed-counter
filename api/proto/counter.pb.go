@@ -67,7 +67,7 @@ func (x StateUpdate_UpdateType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use StateUpdate_UpdateType.Descriptor instead.
 func (StateUpdate_UpdateType) EnumDescriptor() ([]byte, []int) {
-	return file_api_proto_counter_proto_rawDescGZIP(), []int{6, 0}
+	return file_api_proto_counter_proto_rawDescGZIP(), []int{7, 0}
 }
 
 // Request & Response Messages
@@ -235,6 +235,50 @@ func (x *GetValueRequest) GetNodeId() string {
 	return ""
 }
 
+type ResetRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	NodeId        string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"` // optional: which node's counter to reset
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResetRequest) Reset() {
+	*x = ResetRequest{}
+	mi := &file_api_proto_counter_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResetRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResetRequest) ProtoMessage() {}
+
+func (x *ResetRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_counter_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResetRequest.ProtoReflect.Descriptor instead.
+func (*ResetRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_counter_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ResetRequest) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
 type GetNodeInfoRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -243,7 +287,7 @@ type GetNodeInfoRequest struct {
 
 func (x *GetNodeInfoRequest) Reset() {
 	*x = GetNodeInfoRequest{}
-	mi := &file_api_proto_counter_proto_msgTypes[3]
+	mi := &file_api_proto_counter_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -255,7 +299,7 @@ func (x *GetNodeInfoRequest) String() string {
 func (*GetNodeInfoRequest) ProtoMessage() {}
 
 func (x *GetNodeInfoRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_counter_proto_msgTypes[3]
+	mi := &file_api_proto_counter_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -268,7 +312,7 @@ func (x *GetNodeInfoRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetNodeInfoRequest.ProtoReflect.Descriptor instead.
 func (*GetNodeInfoRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_counter_proto_rawDescGZIP(), []int{3}
+	return file_api_proto_counter_proto_rawDescGZIP(), []int{4}
 }
 
 type CounterResponse struct {
@@ -284,7 +328,7 @@ type CounterResponse struct {
 
 func (x *CounterResponse) Reset() {
 	*x = CounterResponse{}
-	mi := &file_api_proto_counter_proto_msgTypes[4]
+	mi := &file_api_proto_counter_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -296,7 +340,7 @@ func (x *CounterResponse) String() string {
 func (*CounterResponse) ProtoMessage() {}
 
 func (x *CounterResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_counter_proto_msgTypes[4]
+	mi := &file_api_proto_counter_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -309,7 +353,7 @@ func (x *CounterResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CounterResponse.ProtoReflect.Descriptor instead.
 func (*CounterResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_counter_proto_rawDescGZIP(), []int{4}
+	return file_api_proto_counter_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *CounterResponse) GetNodeId() string {
@@ -361,7 +405,7 @@ type NodeInfo struct {
 
 func (x *NodeInfo) Reset() {
 	*x = NodeInfo{}
-	mi := &file_api_proto_counter_proto_msgTypes[5]
+	mi := &file_api_proto_counter_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -373,7 +417,7 @@ func (x *NodeInfo) String() string {
 func (*NodeInfo) ProtoMessage() {}
 
 func (x *NodeInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_counter_proto_msgTypes[5]
+	mi := &file_api_proto_counter_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -386,7 +430,7 @@ func (x *NodeInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NodeInfo.ProtoReflect.Descriptor instead.
 func (*NodeInfo) Descriptor() ([]byte, []int) {
-	return file_api_proto_counter_proto_rawDescGZIP(), []int{5}
+	return file_api_proto_counter_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *NodeInfo) GetNodeId() string {
@@ -440,13 +484,16 @@ type StateUpdate struct {
 	VectorClock   map[string]int64       `protobuf:"bytes,4,rep,name=vector_clock,json=vectorClock,proto3" json:"vector_clock,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
 	Timestamp     int64                  `protobuf:"varint,5,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	Type          StateUpdate_UpdateType `protobuf:"varint,6,opt,name=type,proto3,enum=counter.StateUpdate_UpdateType" json:"type,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// Version of the sender's state (max vector clock value). Lets the
+	// receiver skip redundant merges and enables delta-only gossip.
+	LastSyncVersion int64 `protobuf:"varint,7,opt,name=last_sync_version,json=lastSyncVersion,proto3" json:"last_sync_version,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *StateUpdate) Reset() {
 	*x = StateUpdate{}
-	mi := &file_api_proto_counter_proto_msgTypes[6]
+	mi := &file_api_proto_counter_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -458,7 +505,7 @@ func (x *StateUpdate) String() string {
 func (*StateUpdate) ProtoMessage() {}
 
 func (x *StateUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_counter_proto_msgTypes[6]
+	mi := &file_api_proto_counter_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -471,7 +518,7 @@ func (x *StateUpdate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StateUpdate.ProtoReflect.Descriptor instead.
 func (*StateUpdate) Descriptor() ([]byte, []int) {
-	return file_api_proto_counter_proto_rawDescGZIP(), []int{6}
+	return file_api_proto_counter_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *StateUpdate) GetFromNodeId() string {
@@ -516,6 +563,13 @@ func (x *StateUpdate) GetType() StateUpdate_UpdateType {
 	return StateUpdate_FULL_STATE
 }
 
+func (x *StateUpdate) GetLastSyncVersion() int64 {
+	if x != nil {
+		return x.LastSyncVersion
+	}
+	return 0
+}
+
 // Membership Messages
 type JoinRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -528,7 +582,7 @@ type JoinRequest struct {
 
 func (x *JoinRequest) Reset() {
 	*x = JoinRequest{}
-	mi := &file_api_proto_counter_proto_msgTypes[7]
+	mi := &file_api_proto_counter_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -540,7 +594,7 @@ func (x *JoinRequest) String() string {
 func (*JoinRequest) ProtoMessage() {}
 
 func (x *JoinRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_counter_proto_msgTypes[7]
+	mi := &file_api_proto_counter_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -553,7 +607,7 @@ func (x *JoinRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JoinRequest.ProtoReflect.Descriptor instead.
 func (*JoinRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_counter_proto_rawDescGZIP(), []int{7}
+	return file_api_proto_counter_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *JoinRequest) GetNodeId() string {
@@ -587,7 +641,7 @@ type MemberList struct {
 
 func (x *MemberList) Reset() {
 	*x = MemberList{}
-	mi := &file_api_proto_counter_proto_msgTypes[8]
+	mi := &file_api_proto_counter_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -599,7 +653,7 @@ func (x *MemberList) String() string {
 func (*MemberList) ProtoMessage() {}
 
 func (x *MemberList) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_counter_proto_msgTypes[8]
+	mi := &file_api_proto_counter_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -612,7 +666,7 @@ func (x *MemberList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MemberList.ProtoReflect.Descriptor instead.
 func (*MemberList) Descriptor() ([]byte, []int) {
-	return file_api_proto_counter_proto_rawDescGZIP(), []int{8}
+	return file_api_proto_counter_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *MemberList) GetMembers() []*Member {
@@ -642,7 +696,7 @@ type Member struct {
 
 func (x *Member) Reset() {
 	*x = Member{}
-	mi := &file_api_proto_counter_proto_msgTypes[9]
+	mi := &file_api_proto_counter_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -654,7 +708,7 @@ func (x *Member) String() string {
 func (*Member) ProtoMessage() {}
 
 func (x *Member) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_counter_proto_msgTypes[9]
+	mi := &file_api_proto_counter_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -667,7 +721,7 @@ func (x *Member) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Member.ProtoReflect.Descriptor instead.
 func (*Member) Descriptor() ([]byte, []int) {
-	return file_api_proto_counter_proto_rawDescGZIP(), []int{9}
+	return file_api_proto_counter_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Member) GetNodeId() string {
@@ -716,7 +770,7 @@ type HeartbeatRequest struct {
 
 func (x *HeartbeatRequest) Reset() {
 	*x = HeartbeatRequest{}
-	mi := &file_api_proto_counter_proto_msgTypes[10]
+	mi := &file_api_proto_counter_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -728,7 +782,7 @@ func (x *HeartbeatRequest) String() string {
 func (*HeartbeatRequest) ProtoMessage() {}
 
 func (x *HeartbeatRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_counter_proto_msgTypes[10]
+	mi := &file_api_proto_counter_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -741,7 +795,7 @@ func (x *HeartbeatRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HeartbeatRequest.ProtoReflect.Descriptor instead.
 func (*HeartbeatRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_counter_proto_rawDescGZIP(), []int{10}
+	return file_api_proto_counter_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *HeartbeatRequest) GetNodeId() string {
@@ -777,7 +831,7 @@ type HeartbeatResponse struct {
 
 func (x *HeartbeatResponse) Reset() {
 	*x = HeartbeatResponse{}
-	mi := &file_api_proto_counter_proto_msgTypes[11]
+	mi := &file_api_proto_counter_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -789,7 +843,7 @@ func (x *HeartbeatResponse) String() string {
 func (*HeartbeatResponse) ProtoMessage() {}
 
 func (x *HeartbeatResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_counter_proto_msgTypes[11]
+	mi := &file_api_proto_counter_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -802,7 +856,7 @@ func (x *HeartbeatResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HeartbeatResponse.ProtoReflect.Descriptor instead.
 func (*HeartbeatResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_counter_proto_rawDescGZIP(), []int{11}
+	return file_api_proto_counter_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *HeartbeatResponse) GetSuccess() bool {
@@ -847,6 +901,8 @@ const file_api_proto_counter_proto_rawDesc = "" +
 	"\tclient_id\x18\x02 \x01(\tR\bclientId\x12\x1c\n" +
 	"\ttimestamp\x18\x03 \x01(\x03R\ttimestamp\"*\n" +
 	"\x0fGetValueRequest\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\tR\x06nodeId\"'\n" +
+	"\fResetRequest\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\"\x14\n" +
 	"\x12GetNodeInfoRequest\"\xc4\x01\n" +
 	"\x0fCounterResponse\x12\x17\n" +
@@ -861,7 +917,7 @@ const file_api_proto_counter_proto_rawDesc = "" +
 	"\rcounter_value\x18\x03 \x01(\x03R\fcounterValue\x12\x18\n" +
 	"\aversion\x18\x04 \x01(\tR\aversion\x12\x1b\n" +
 	"\tis_leader\x18\x05 \x01(\bR\bisLeader\x12\x1b\n" +
-	"\tlast_seen\x18\x06 \x01(\x03R\blastSeen\"\xef\x04\n" +
+	"\tlast_seen\x18\x06 \x01(\x03R\blastSeen\"\x9b\x05\n" +
 	"\vStateUpdate\x12 \n" +
 	"\ffrom_node_id\x18\x01 \x01(\tR\n" +
 	"fromNodeId\x12N\n" +
@@ -869,7 +925,8 @@ const file_api_proto_counter_proto_rawDesc = "" +
 	"\x0enegative_state\x18\x03 \x03(\v2'.counter.StateUpdate.NegativeStateEntryR\rnegativeState\x12H\n" +
 	"\fvector_clock\x18\x04 \x03(\v2%.counter.StateUpdate.VectorClockEntryR\vvectorClock\x12\x1c\n" +
 	"\ttimestamp\x18\x05 \x01(\x03R\ttimestamp\x123\n" +
-	"\x04type\x18\x06 \x01(\x0e2\x1f.counter.StateUpdate.UpdateTypeR\x04type\x1a@\n" +
+	"\x04type\x18\x06 \x01(\x0e2\x1f.counter.StateUpdate.UpdateTypeR\x04type\x12*\n" +
+	"\x11last_sync_version\x18\a \x01(\x03R\x0flastSyncVersion\x1a@\n" +
 	"\x12PositiveStateEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\x1a@\n" +
@@ -907,12 +964,13 @@ const file_api_proto_counter_proto_rawDesc = "" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12!\n" +
 	"\fcluster_size\x18\x03 \x01(\x03R\vclusterSize\x126\n" +
-	"\x0eactive_members\x18\x04 \x03(\v2\x0f.counter.MemberR\ractiveMembers2\xd0\x03\n" +
+	"\x0eactive_members\x18\x04 \x03(\v2\x0f.counter.MemberR\ractiveMembers2\x8a\x04\n" +
 	"\x0eCounterService\x12@\n" +
 	"\tIncrement\x12\x19.counter.IncrementRequest\x1a\x18.counter.CounterResponse\x12@\n" +
 	"\tDecrement\x12\x19.counter.DecrementRequest\x1a\x18.counter.CounterResponse\x12>\n" +
 	"\bGetValue\x12\x18.counter.GetValueRequest\x1a\x18.counter.CounterResponse\x12=\n" +
-	"\vGetNodeInfo\x12\x1b.counter.GetNodeInfoRequest\x1a\x11.counter.NodeInfo\x12;\n" +
+	"\vGetNodeInfo\x12\x1b.counter.GetNodeInfoRequest\x1a\x11.counter.NodeInfo\x128\n" +
+	"\x05Reset\x12\x15.counter.ResetRequest\x1a\x18.counter.CounterResponse\x12;\n" +
 	"\tSyncState\x12\x14.counter.StateUpdate\x1a\x14.counter.StateUpdate(\x010\x01\x12:\n" +
 	"\vJoinCluster\x12\x14.counter.JoinRequest\x1a\x13.counter.MemberList0\x01\x12B\n" +
 	"\tHeartbeat\x12\x19.counter.HeartbeatRequest\x1a\x1a.counter.HeartbeatResponseB;Z9github.com/VeryFach/distributed-counter/api/proto;counterb\x06proto3"
@@ -930,49 +988,52 @@ func file_api_proto_counter_proto_rawDescGZIP() []byte {
 }
 
 var file_api_proto_counter_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_api_proto_counter_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_api_proto_counter_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_api_proto_counter_proto_goTypes = []any{
 	(StateUpdate_UpdateType)(0), // 0: counter.StateUpdate.UpdateType
 	(*IncrementRequest)(nil),    // 1: counter.IncrementRequest
 	(*DecrementRequest)(nil),    // 2: counter.DecrementRequest
 	(*GetValueRequest)(nil),     // 3: counter.GetValueRequest
-	(*GetNodeInfoRequest)(nil),  // 4: counter.GetNodeInfoRequest
-	(*CounterResponse)(nil),     // 5: counter.CounterResponse
-	(*NodeInfo)(nil),            // 6: counter.NodeInfo
-	(*StateUpdate)(nil),         // 7: counter.StateUpdate
-	(*JoinRequest)(nil),         // 8: counter.JoinRequest
-	(*MemberList)(nil),          // 9: counter.MemberList
-	(*Member)(nil),              // 10: counter.Member
-	(*HeartbeatRequest)(nil),    // 11: counter.HeartbeatRequest
-	(*HeartbeatResponse)(nil),   // 12: counter.HeartbeatResponse
-	nil,                         // 13: counter.StateUpdate.PositiveStateEntry
-	nil,                         // 14: counter.StateUpdate.NegativeStateEntry
-	nil,                         // 15: counter.StateUpdate.VectorClockEntry
+	(*ResetRequest)(nil),        // 4: counter.ResetRequest
+	(*GetNodeInfoRequest)(nil),  // 5: counter.GetNodeInfoRequest
+	(*CounterResponse)(nil),     // 6: counter.CounterResponse
+	(*NodeInfo)(nil),            // 7: counter.NodeInfo
+	(*StateUpdate)(nil),         // 8: counter.StateUpdate
+	(*JoinRequest)(nil),         // 9: counter.JoinRequest
+	(*MemberList)(nil),          // 10: counter.MemberList
+	(*Member)(nil),              // 11: counter.Member
+	(*HeartbeatRequest)(nil),    // 12: counter.HeartbeatRequest
+	(*HeartbeatResponse)(nil),   // 13: counter.HeartbeatResponse
+	nil,                         // 14: counter.StateUpdate.PositiveStateEntry
+	nil,                         // 15: counter.StateUpdate.NegativeStateEntry
+	nil,                         // 16: counter.StateUpdate.VectorClockEntry
 }
 var file_api_proto_counter_proto_depIdxs = []int32{
-	6,  // 0: counter.CounterResponse.cluster_nodes:type_name -> counter.NodeInfo
-	13, // 1: counter.StateUpdate.positive_state:type_name -> counter.StateUpdate.PositiveStateEntry
-	14, // 2: counter.StateUpdate.negative_state:type_name -> counter.StateUpdate.NegativeStateEntry
-	15, // 3: counter.StateUpdate.vector_clock:type_name -> counter.StateUpdate.VectorClockEntry
+	7,  // 0: counter.CounterResponse.cluster_nodes:type_name -> counter.NodeInfo
+	14, // 1: counter.StateUpdate.positive_state:type_name -> counter.StateUpdate.PositiveStateEntry
+	15, // 2: counter.StateUpdate.negative_state:type_name -> counter.StateUpdate.NegativeStateEntry
+	16, // 3: counter.StateUpdate.vector_clock:type_name -> counter.StateUpdate.VectorClockEntry
 	0,  // 4: counter.StateUpdate.type:type_name -> counter.StateUpdate.UpdateType
-	10, // 5: counter.MemberList.members:type_name -> counter.Member
-	10, // 6: counter.HeartbeatResponse.active_members:type_name -> counter.Member
+	11, // 5: counter.MemberList.members:type_name -> counter.Member
+	11, // 6: counter.HeartbeatResponse.active_members:type_name -> counter.Member
 	1,  // 7: counter.CounterService.Increment:input_type -> counter.IncrementRequest
 	2,  // 8: counter.CounterService.Decrement:input_type -> counter.DecrementRequest
 	3,  // 9: counter.CounterService.GetValue:input_type -> counter.GetValueRequest
-	4,  // 10: counter.CounterService.GetNodeInfo:input_type -> counter.GetNodeInfoRequest
-	7,  // 11: counter.CounterService.SyncState:input_type -> counter.StateUpdate
-	8,  // 12: counter.CounterService.JoinCluster:input_type -> counter.JoinRequest
-	11, // 13: counter.CounterService.Heartbeat:input_type -> counter.HeartbeatRequest
-	5,  // 14: counter.CounterService.Increment:output_type -> counter.CounterResponse
-	5,  // 15: counter.CounterService.Decrement:output_type -> counter.CounterResponse
-	5,  // 16: counter.CounterService.GetValue:output_type -> counter.CounterResponse
-	6,  // 17: counter.CounterService.GetNodeInfo:output_type -> counter.NodeInfo
-	7,  // 18: counter.CounterService.SyncState:output_type -> counter.StateUpdate
-	9,  // 19: counter.CounterService.JoinCluster:output_type -> counter.MemberList
-	12, // 20: counter.CounterService.Heartbeat:output_type -> counter.HeartbeatResponse
-	14, // [14:21] is the sub-list for method output_type
-	7,  // [7:14] is the sub-list for method input_type
+	5,  // 10: counter.CounterService.GetNodeInfo:input_type -> counter.GetNodeInfoRequest
+	4,  // 11: counter.CounterService.Reset:input_type -> counter.ResetRequest
+	8,  // 12: counter.CounterService.SyncState:input_type -> counter.StateUpdate
+	9,  // 13: counter.CounterService.JoinCluster:input_type -> counter.JoinRequest
+	12, // 14: counter.CounterService.Heartbeat:input_type -> counter.HeartbeatRequest
+	6,  // 15: counter.CounterService.Increment:output_type -> counter.CounterResponse
+	6,  // 16: counter.CounterService.Decrement:output_type -> counter.CounterResponse
+	6,  // 17: counter.CounterService.GetValue:output_type -> counter.CounterResponse
+	7,  // 18: counter.CounterService.GetNodeInfo:output_type -> counter.NodeInfo
+	6,  // 19: counter.CounterService.Reset:output_type -> counter.CounterResponse
+	8,  // 20: counter.CounterService.SyncState:output_type -> counter.StateUpdate
+	10, // 21: counter.CounterService.JoinCluster:output_type -> counter.MemberList
+	13, // 22: counter.CounterService.Heartbeat:output_type -> counter.HeartbeatResponse
+	15, // [15:23] is the sub-list for method output_type
+	7,  // [7:15] is the sub-list for method input_type
 	7,  // [7:7] is the sub-list for extension type_name
 	7,  // [7:7] is the sub-list for extension extendee
 	0,  // [0:7] is the sub-list for field type_name
@@ -989,7 +1050,7 @@ func file_api_proto_counter_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_proto_counter_proto_rawDesc), len(file_api_proto_counter_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   15,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
