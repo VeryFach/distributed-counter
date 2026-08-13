@@ -21,6 +21,59 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Member lifecycle states used by the gossip membership protocol.
+type MemberStatus int32
+
+const (
+	MemberStatus_MEMBER_ALIVE   MemberStatus = 0
+	MemberStatus_MEMBER_SUSPECT MemberStatus = 1
+	MemberStatus_MEMBER_DEAD    MemberStatus = 2
+	MemberStatus_MEMBER_LEFT    MemberStatus = 3
+)
+
+// Enum value maps for MemberStatus.
+var (
+	MemberStatus_name = map[int32]string{
+		0: "MEMBER_ALIVE",
+		1: "MEMBER_SUSPECT",
+		2: "MEMBER_DEAD",
+		3: "MEMBER_LEFT",
+	}
+	MemberStatus_value = map[string]int32{
+		"MEMBER_ALIVE":   0,
+		"MEMBER_SUSPECT": 1,
+		"MEMBER_DEAD":    2,
+		"MEMBER_LEFT":    3,
+	}
+)
+
+func (x MemberStatus) Enum() *MemberStatus {
+	p := new(MemberStatus)
+	*p = x
+	return p
+}
+
+func (x MemberStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (MemberStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_api_proto_counter_proto_enumTypes[0].Descriptor()
+}
+
+func (MemberStatus) Type() protoreflect.EnumType {
+	return &file_api_proto_counter_proto_enumTypes[0]
+}
+
+func (x MemberStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use MemberStatus.Descriptor instead.
+func (MemberStatus) EnumDescriptor() ([]byte, []int) {
+	return file_api_proto_counter_proto_rawDescGZIP(), []int{0}
+}
+
 type StateUpdate_UpdateType int32
 
 const (
@@ -54,11 +107,11 @@ func (x StateUpdate_UpdateType) String() string {
 }
 
 func (StateUpdate_UpdateType) Descriptor() protoreflect.EnumDescriptor {
-	return file_api_proto_counter_proto_enumTypes[0].Descriptor()
+	return file_api_proto_counter_proto_enumTypes[1].Descriptor()
 }
 
 func (StateUpdate_UpdateType) Type() protoreflect.EnumType {
-	return &file_api_proto_counter_proto_enumTypes[0]
+	return &file_api_proto_counter_proto_enumTypes[1]
 }
 
 func (x StateUpdate_UpdateType) Number() protoreflect.EnumNumber {
@@ -487,8 +540,11 @@ type StateUpdate struct {
 	// Version of the sender's state (max vector clock value). Lets the
 	// receiver skip redundant merges and enables delta-only gossip.
 	LastSyncVersion int64 `protobuf:"varint,7,opt,name=last_sync_version,json=lastSyncVersion,proto3" json:"last_sync_version,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Membership gossip: node_id -> lifecycle status. Lets Suspect/Dead
+	// transitions propagate through the cluster without a dedicated RPC.
+	Membership    map[string]MemberStatus `protobuf:"bytes,8,rep,name=membership,proto3" json:"membership,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value,enum=counter.MemberStatus"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *StateUpdate) Reset() {
@@ -568,6 +624,13 @@ func (x *StateUpdate) GetLastSyncVersion() int64 {
 		return x.LastSyncVersion
 	}
 	return 0
+}
+
+func (x *StateUpdate) GetMembership() map[string]MemberStatus {
+	if x != nil {
+		return x.Membership
+	}
+	return nil
 }
 
 // Membership Messages
@@ -690,6 +753,7 @@ type Member struct {
 	IsActive      bool                   `protobuf:"varint,3,opt,name=is_active,json=isActive,proto3" json:"is_active,omitempty"`
 	LastHeartbeat int64                  `protobuf:"varint,4,opt,name=last_heartbeat,json=lastHeartbeat,proto3" json:"last_heartbeat,omitempty"`
 	CounterValue  int64                  `protobuf:"varint,5,opt,name=counter_value,json=counterValue,proto3" json:"counter_value,omitempty"`
+	Status        MemberStatus           `protobuf:"varint,6,opt,name=status,proto3,enum=counter.MemberStatus" json:"status,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -759,11 +823,19 @@ func (x *Member) GetCounterValue() int64 {
 	return 0
 }
 
+func (x *Member) GetStatus() MemberStatus {
+	if x != nil {
+		return x.Status
+	}
+	return MemberStatus_MEMBER_ALIVE
+}
+
 type HeartbeatRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	NodeId        string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
 	CurrentValue  int64                  `protobuf:"varint,2,opt,name=current_value,json=currentValue,proto3" json:"current_value,omitempty"`
 	Timestamp     int64                  `protobuf:"varint,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	Address       string                 `protobuf:"bytes,4,opt,name=address,proto3" json:"address,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -817,6 +889,13 @@ func (x *HeartbeatRequest) GetTimestamp() int64 {
 		return x.Timestamp
 	}
 	return 0
+}
+
+func (x *HeartbeatRequest) GetAddress() string {
+	if x != nil {
+		return x.Address
+	}
+	return ""
 }
 
 type HeartbeatResponse struct {
@@ -887,6 +966,247 @@ func (x *HeartbeatResponse) GetActiveMembers() []*Member {
 	return nil
 }
 
+// SWIM failure detector messages
+type SwimPingRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	FromNodeId    string                 `protobuf:"bytes,1,opt,name=from_node_id,json=fromNodeId,proto3" json:"from_node_id,omitempty"`
+	TargetNodeId  string                 `protobuf:"bytes,2,opt,name=target_node_id,json=targetNodeId,proto3" json:"target_node_id,omitempty"`
+	MessageId     int64                  `protobuf:"varint,3,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SwimPingRequest) Reset() {
+	*x = SwimPingRequest{}
+	mi := &file_api_proto_counter_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SwimPingRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SwimPingRequest) ProtoMessage() {}
+
+func (x *SwimPingRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_counter_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SwimPingRequest.ProtoReflect.Descriptor instead.
+func (*SwimPingRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_counter_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *SwimPingRequest) GetFromNodeId() string {
+	if x != nil {
+		return x.FromNodeId
+	}
+	return ""
+}
+
+func (x *SwimPingRequest) GetTargetNodeId() string {
+	if x != nil {
+		return x.TargetNodeId
+	}
+	return ""
+}
+
+func (x *SwimPingRequest) GetMessageId() int64 {
+	if x != nil {
+		return x.MessageId
+	}
+	return 0
+}
+
+type SwimPingResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	NodeId        string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	Alive         bool                   `protobuf:"varint,2,opt,name=alive,proto3" json:"alive,omitempty"`
+	MessageId     int64                  `protobuf:"varint,3,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SwimPingResponse) Reset() {
+	*x = SwimPingResponse{}
+	mi := &file_api_proto_counter_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SwimPingResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SwimPingResponse) ProtoMessage() {}
+
+func (x *SwimPingResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_counter_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SwimPingResponse.ProtoReflect.Descriptor instead.
+func (*SwimPingResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_counter_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *SwimPingResponse) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *SwimPingResponse) GetAlive() bool {
+	if x != nil {
+		return x.Alive
+	}
+	return false
+}
+
+func (x *SwimPingResponse) GetMessageId() int64 {
+	if x != nil {
+		return x.MessageId
+	}
+	return 0
+}
+
+type SwimPingReqRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	FromNodeId    string                 `protobuf:"bytes,1,opt,name=from_node_id,json=fromNodeId,proto3" json:"from_node_id,omitempty"`
+	TargetNodeId  string                 `protobuf:"bytes,2,opt,name=target_node_id,json=targetNodeId,proto3" json:"target_node_id,omitempty"`
+	MessageId     int64                  `protobuf:"varint,3,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SwimPingReqRequest) Reset() {
+	*x = SwimPingReqRequest{}
+	mi := &file_api_proto_counter_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SwimPingReqRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SwimPingReqRequest) ProtoMessage() {}
+
+func (x *SwimPingReqRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_counter_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SwimPingReqRequest.ProtoReflect.Descriptor instead.
+func (*SwimPingReqRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_counter_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *SwimPingReqRequest) GetFromNodeId() string {
+	if x != nil {
+		return x.FromNodeId
+	}
+	return ""
+}
+
+func (x *SwimPingReqRequest) GetTargetNodeId() string {
+	if x != nil {
+		return x.TargetNodeId
+	}
+	return ""
+}
+
+func (x *SwimPingReqRequest) GetMessageId() int64 {
+	if x != nil {
+		return x.MessageId
+	}
+	return 0
+}
+
+type SwimPingReqResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	NodeId        string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	Alive         bool                   `protobuf:"varint,2,opt,name=alive,proto3" json:"alive,omitempty"`
+	MessageId     int64                  `protobuf:"varint,3,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SwimPingReqResponse) Reset() {
+	*x = SwimPingReqResponse{}
+	mi := &file_api_proto_counter_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SwimPingReqResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SwimPingReqResponse) ProtoMessage() {}
+
+func (x *SwimPingReqResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_counter_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SwimPingReqResponse.ProtoReflect.Descriptor instead.
+func (*SwimPingReqResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_counter_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *SwimPingReqResponse) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *SwimPingReqResponse) GetAlive() bool {
+	if x != nil {
+		return x.Alive
+	}
+	return false
+}
+
+func (x *SwimPingReqResponse) GetMessageId() int64 {
+	if x != nil {
+		return x.MessageId
+	}
+	return 0
+}
+
 var File_api_proto_counter_proto protoreflect.FileDescriptor
 
 const file_api_proto_counter_proto_rawDesc = "" +
@@ -917,7 +1237,7 @@ const file_api_proto_counter_proto_rawDesc = "" +
 	"\rcounter_value\x18\x03 \x01(\x03R\fcounterValue\x12\x18\n" +
 	"\aversion\x18\x04 \x01(\tR\aversion\x12\x1b\n" +
 	"\tis_leader\x18\x05 \x01(\bR\bisLeader\x12\x1b\n" +
-	"\tlast_seen\x18\x06 \x01(\x03R\blastSeen\"\x9b\x05\n" +
+	"\tlast_seen\x18\x06 \x01(\x03R\blastSeen\"\xb7\x06\n" +
 	"\vStateUpdate\x12 \n" +
 	"\ffrom_node_id\x18\x01 \x01(\tR\n" +
 	"fromNodeId\x12N\n" +
@@ -926,7 +1246,10 @@ const file_api_proto_counter_proto_rawDesc = "" +
 	"\fvector_clock\x18\x04 \x03(\v2%.counter.StateUpdate.VectorClockEntryR\vvectorClock\x12\x1c\n" +
 	"\ttimestamp\x18\x05 \x01(\x03R\ttimestamp\x123\n" +
 	"\x04type\x18\x06 \x01(\x0e2\x1f.counter.StateUpdate.UpdateTypeR\x04type\x12*\n" +
-	"\x11last_sync_version\x18\a \x01(\x03R\x0flastSyncVersion\x1a@\n" +
+	"\x11last_sync_version\x18\a \x01(\x03R\x0flastSyncVersion\x12D\n" +
+	"\n" +
+	"membership\x18\b \x03(\v2$.counter.StateUpdate.MembershipEntryR\n" +
+	"membership\x1a@\n" +
 	"\x12PositiveStateEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\x1a@\n" +
@@ -935,7 +1258,10 @@ const file_api_proto_counter_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\x1a>\n" +
 	"\x10VectorClockEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\"=\n" +
+	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\x1aT\n" +
+	"\x0fMembershipEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12+\n" +
+	"\x05value\x18\x02 \x01(\x0e2\x15.counter.MemberStatusR\x05value:\x028\x01\"=\n" +
 	"\n" +
 	"UpdateType\x12\x0e\n" +
 	"\n" +
@@ -949,22 +1275,51 @@ const file_api_proto_counter_proto_rawDesc = "" +
 	"\n" +
 	"MemberList\x12)\n" +
 	"\amembers\x18\x01 \x03(\v2\x0f.counter.MemberR\amembers\x12\x18\n" +
-	"\aversion\x18\x02 \x01(\x03R\aversion\"\xa4\x01\n" +
+	"\aversion\x18\x02 \x01(\x03R\aversion\"\xd3\x01\n" +
 	"\x06Member\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x1b\n" +
 	"\tis_active\x18\x03 \x01(\bR\bisActive\x12%\n" +
 	"\x0elast_heartbeat\x18\x04 \x01(\x03R\rlastHeartbeat\x12#\n" +
-	"\rcounter_value\x18\x05 \x01(\x03R\fcounterValue\"n\n" +
+	"\rcounter_value\x18\x05 \x01(\x03R\fcounterValue\x12-\n" +
+	"\x06status\x18\x06 \x01(\x0e2\x15.counter.MemberStatusR\x06status\"\x88\x01\n" +
 	"\x10HeartbeatRequest\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12#\n" +
 	"\rcurrent_value\x18\x02 \x01(\x03R\fcurrentValue\x12\x1c\n" +
-	"\ttimestamp\x18\x03 \x01(\x03R\ttimestamp\"\xa2\x01\n" +
+	"\ttimestamp\x18\x03 \x01(\x03R\ttimestamp\x12\x18\n" +
+	"\aaddress\x18\x04 \x01(\tR\aaddress\"\xa2\x01\n" +
 	"\x11HeartbeatResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12!\n" +
 	"\fcluster_size\x18\x03 \x01(\x03R\vclusterSize\x126\n" +
-	"\x0eactive_members\x18\x04 \x03(\v2\x0f.counter.MemberR\ractiveMembers2\x8a\x04\n" +
+	"\x0eactive_members\x18\x04 \x03(\v2\x0f.counter.MemberR\ractiveMembers\"x\n" +
+	"\x0fSwimPingRequest\x12 \n" +
+	"\ffrom_node_id\x18\x01 \x01(\tR\n" +
+	"fromNodeId\x12$\n" +
+	"\x0etarget_node_id\x18\x02 \x01(\tR\ftargetNodeId\x12\x1d\n" +
+	"\n" +
+	"message_id\x18\x03 \x01(\x03R\tmessageId\"`\n" +
+	"\x10SwimPingResponse\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x14\n" +
+	"\x05alive\x18\x02 \x01(\bR\x05alive\x12\x1d\n" +
+	"\n" +
+	"message_id\x18\x03 \x01(\x03R\tmessageId\"{\n" +
+	"\x12SwimPingReqRequest\x12 \n" +
+	"\ffrom_node_id\x18\x01 \x01(\tR\n" +
+	"fromNodeId\x12$\n" +
+	"\x0etarget_node_id\x18\x02 \x01(\tR\ftargetNodeId\x12\x1d\n" +
+	"\n" +
+	"message_id\x18\x03 \x01(\x03R\tmessageId\"c\n" +
+	"\x13SwimPingReqResponse\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x14\n" +
+	"\x05alive\x18\x02 \x01(\bR\x05alive\x12\x1d\n" +
+	"\n" +
+	"message_id\x18\x03 \x01(\x03R\tmessageId*V\n" +
+	"\fMemberStatus\x12\x10\n" +
+	"\fMEMBER_ALIVE\x10\x00\x12\x12\n" +
+	"\x0eMEMBER_SUSPECT\x10\x01\x12\x0f\n" +
+	"\vMEMBER_DEAD\x10\x02\x12\x0f\n" +
+	"\vMEMBER_LEFT\x10\x032\x95\x05\n" +
 	"\x0eCounterService\x12@\n" +
 	"\tIncrement\x12\x19.counter.IncrementRequest\x1a\x18.counter.CounterResponse\x12@\n" +
 	"\tDecrement\x12\x19.counter.DecrementRequest\x1a\x18.counter.CounterResponse\x12>\n" +
@@ -973,7 +1328,9 @@ const file_api_proto_counter_proto_rawDesc = "" +
 	"\x05Reset\x12\x15.counter.ResetRequest\x1a\x18.counter.CounterResponse\x12;\n" +
 	"\tSyncState\x12\x14.counter.StateUpdate\x1a\x14.counter.StateUpdate(\x010\x01\x12:\n" +
 	"\vJoinCluster\x12\x14.counter.JoinRequest\x1a\x13.counter.MemberList0\x01\x12B\n" +
-	"\tHeartbeat\x12\x19.counter.HeartbeatRequest\x1a\x1a.counter.HeartbeatResponseB;Z9github.com/VeryFach/distributed-counter/api/proto;counterb\x06proto3"
+	"\tHeartbeat\x12\x19.counter.HeartbeatRequest\x1a\x1a.counter.HeartbeatResponse\x12?\n" +
+	"\bSwimPing\x12\x18.counter.SwimPingRequest\x1a\x19.counter.SwimPingResponse\x12H\n" +
+	"\vSwimPingReq\x12\x1b.counter.SwimPingReqRequest\x1a\x1c.counter.SwimPingReqResponseB;Z9github.com/VeryFach/distributed-counter/api/proto;counterb\x06proto3"
 
 var (
 	file_api_proto_counter_proto_rawDescOnce sync.Once
@@ -987,56 +1344,69 @@ func file_api_proto_counter_proto_rawDescGZIP() []byte {
 	return file_api_proto_counter_proto_rawDescData
 }
 
-var file_api_proto_counter_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_api_proto_counter_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_api_proto_counter_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_api_proto_counter_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_api_proto_counter_proto_goTypes = []any{
-	(StateUpdate_UpdateType)(0), // 0: counter.StateUpdate.UpdateType
-	(*IncrementRequest)(nil),    // 1: counter.IncrementRequest
-	(*DecrementRequest)(nil),    // 2: counter.DecrementRequest
-	(*GetValueRequest)(nil),     // 3: counter.GetValueRequest
-	(*ResetRequest)(nil),        // 4: counter.ResetRequest
-	(*GetNodeInfoRequest)(nil),  // 5: counter.GetNodeInfoRequest
-	(*CounterResponse)(nil),     // 6: counter.CounterResponse
-	(*NodeInfo)(nil),            // 7: counter.NodeInfo
-	(*StateUpdate)(nil),         // 8: counter.StateUpdate
-	(*JoinRequest)(nil),         // 9: counter.JoinRequest
-	(*MemberList)(nil),          // 10: counter.MemberList
-	(*Member)(nil),              // 11: counter.Member
-	(*HeartbeatRequest)(nil),    // 12: counter.HeartbeatRequest
-	(*HeartbeatResponse)(nil),   // 13: counter.HeartbeatResponse
-	nil,                         // 14: counter.StateUpdate.PositiveStateEntry
-	nil,                         // 15: counter.StateUpdate.NegativeStateEntry
-	nil,                         // 16: counter.StateUpdate.VectorClockEntry
+	(MemberStatus)(0),           // 0: counter.MemberStatus
+	(StateUpdate_UpdateType)(0), // 1: counter.StateUpdate.UpdateType
+	(*IncrementRequest)(nil),    // 2: counter.IncrementRequest
+	(*DecrementRequest)(nil),    // 3: counter.DecrementRequest
+	(*GetValueRequest)(nil),     // 4: counter.GetValueRequest
+	(*ResetRequest)(nil),        // 5: counter.ResetRequest
+	(*GetNodeInfoRequest)(nil),  // 6: counter.GetNodeInfoRequest
+	(*CounterResponse)(nil),     // 7: counter.CounterResponse
+	(*NodeInfo)(nil),            // 8: counter.NodeInfo
+	(*StateUpdate)(nil),         // 9: counter.StateUpdate
+	(*JoinRequest)(nil),         // 10: counter.JoinRequest
+	(*MemberList)(nil),          // 11: counter.MemberList
+	(*Member)(nil),              // 12: counter.Member
+	(*HeartbeatRequest)(nil),    // 13: counter.HeartbeatRequest
+	(*HeartbeatResponse)(nil),   // 14: counter.HeartbeatResponse
+	(*SwimPingRequest)(nil),     // 15: counter.SwimPingRequest
+	(*SwimPingResponse)(nil),    // 16: counter.SwimPingResponse
+	(*SwimPingReqRequest)(nil),  // 17: counter.SwimPingReqRequest
+	(*SwimPingReqResponse)(nil), // 18: counter.SwimPingReqResponse
+	nil,                         // 19: counter.StateUpdate.PositiveStateEntry
+	nil,                         // 20: counter.StateUpdate.NegativeStateEntry
+	nil,                         // 21: counter.StateUpdate.VectorClockEntry
+	nil,                         // 22: counter.StateUpdate.MembershipEntry
 }
 var file_api_proto_counter_proto_depIdxs = []int32{
-	7,  // 0: counter.CounterResponse.cluster_nodes:type_name -> counter.NodeInfo
-	14, // 1: counter.StateUpdate.positive_state:type_name -> counter.StateUpdate.PositiveStateEntry
-	15, // 2: counter.StateUpdate.negative_state:type_name -> counter.StateUpdate.NegativeStateEntry
-	16, // 3: counter.StateUpdate.vector_clock:type_name -> counter.StateUpdate.VectorClockEntry
-	0,  // 4: counter.StateUpdate.type:type_name -> counter.StateUpdate.UpdateType
-	11, // 5: counter.MemberList.members:type_name -> counter.Member
-	11, // 6: counter.HeartbeatResponse.active_members:type_name -> counter.Member
-	1,  // 7: counter.CounterService.Increment:input_type -> counter.IncrementRequest
-	2,  // 8: counter.CounterService.Decrement:input_type -> counter.DecrementRequest
-	3,  // 9: counter.CounterService.GetValue:input_type -> counter.GetValueRequest
-	5,  // 10: counter.CounterService.GetNodeInfo:input_type -> counter.GetNodeInfoRequest
-	4,  // 11: counter.CounterService.Reset:input_type -> counter.ResetRequest
-	8,  // 12: counter.CounterService.SyncState:input_type -> counter.StateUpdate
-	9,  // 13: counter.CounterService.JoinCluster:input_type -> counter.JoinRequest
-	12, // 14: counter.CounterService.Heartbeat:input_type -> counter.HeartbeatRequest
-	6,  // 15: counter.CounterService.Increment:output_type -> counter.CounterResponse
-	6,  // 16: counter.CounterService.Decrement:output_type -> counter.CounterResponse
-	6,  // 17: counter.CounterService.GetValue:output_type -> counter.CounterResponse
-	7,  // 18: counter.CounterService.GetNodeInfo:output_type -> counter.NodeInfo
-	6,  // 19: counter.CounterService.Reset:output_type -> counter.CounterResponse
-	8,  // 20: counter.CounterService.SyncState:output_type -> counter.StateUpdate
-	10, // 21: counter.CounterService.JoinCluster:output_type -> counter.MemberList
-	13, // 22: counter.CounterService.Heartbeat:output_type -> counter.HeartbeatResponse
-	15, // [15:23] is the sub-list for method output_type
-	7,  // [7:15] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	8,  // 0: counter.CounterResponse.cluster_nodes:type_name -> counter.NodeInfo
+	19, // 1: counter.StateUpdate.positive_state:type_name -> counter.StateUpdate.PositiveStateEntry
+	20, // 2: counter.StateUpdate.negative_state:type_name -> counter.StateUpdate.NegativeStateEntry
+	21, // 3: counter.StateUpdate.vector_clock:type_name -> counter.StateUpdate.VectorClockEntry
+	1,  // 4: counter.StateUpdate.type:type_name -> counter.StateUpdate.UpdateType
+	22, // 5: counter.StateUpdate.membership:type_name -> counter.StateUpdate.MembershipEntry
+	12, // 6: counter.MemberList.members:type_name -> counter.Member
+	0,  // 7: counter.Member.status:type_name -> counter.MemberStatus
+	12, // 8: counter.HeartbeatResponse.active_members:type_name -> counter.Member
+	0,  // 9: counter.StateUpdate.MembershipEntry.value:type_name -> counter.MemberStatus
+	2,  // 10: counter.CounterService.Increment:input_type -> counter.IncrementRequest
+	3,  // 11: counter.CounterService.Decrement:input_type -> counter.DecrementRequest
+	4,  // 12: counter.CounterService.GetValue:input_type -> counter.GetValueRequest
+	6,  // 13: counter.CounterService.GetNodeInfo:input_type -> counter.GetNodeInfoRequest
+	5,  // 14: counter.CounterService.Reset:input_type -> counter.ResetRequest
+	9,  // 15: counter.CounterService.SyncState:input_type -> counter.StateUpdate
+	10, // 16: counter.CounterService.JoinCluster:input_type -> counter.JoinRequest
+	13, // 17: counter.CounterService.Heartbeat:input_type -> counter.HeartbeatRequest
+	15, // 18: counter.CounterService.SwimPing:input_type -> counter.SwimPingRequest
+	17, // 19: counter.CounterService.SwimPingReq:input_type -> counter.SwimPingReqRequest
+	7,  // 20: counter.CounterService.Increment:output_type -> counter.CounterResponse
+	7,  // 21: counter.CounterService.Decrement:output_type -> counter.CounterResponse
+	7,  // 22: counter.CounterService.GetValue:output_type -> counter.CounterResponse
+	8,  // 23: counter.CounterService.GetNodeInfo:output_type -> counter.NodeInfo
+	7,  // 24: counter.CounterService.Reset:output_type -> counter.CounterResponse
+	9,  // 25: counter.CounterService.SyncState:output_type -> counter.StateUpdate
+	11, // 26: counter.CounterService.JoinCluster:output_type -> counter.MemberList
+	14, // 27: counter.CounterService.Heartbeat:output_type -> counter.HeartbeatResponse
+	16, // 28: counter.CounterService.SwimPing:output_type -> counter.SwimPingResponse
+	18, // 29: counter.CounterService.SwimPingReq:output_type -> counter.SwimPingReqResponse
+	20, // [20:30] is the sub-list for method output_type
+	10, // [10:20] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_api_proto_counter_proto_init() }
@@ -1049,8 +1419,8 @@ func file_api_proto_counter_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_proto_counter_proto_rawDesc), len(file_api_proto_counter_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   16,
+			NumEnums:      2,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

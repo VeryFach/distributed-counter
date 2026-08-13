@@ -10,6 +10,16 @@ persistence_enabled: true
 redis_addr: redis:6379
 redis_password: ""
 redis_db: 0
+wal_enabled: true
+wal_dir: data
+snapshot_interval_seconds: 30
+swim_interval: 1
+swim_probe_timeout: 2
+swim_suspect_to_dead: 3
+auth_enabled: false
+api_key: ""
+rate_limit_per_second: 0
+compression_enabled: true
 seed_nodes:
   - node-b:50052
   - node-c:50053

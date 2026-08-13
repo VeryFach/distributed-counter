@@ -13,7 +13,6 @@ import (
 
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	pb "github.com/VeryFach/distributed-counter/api/proto"
 	"github.com/VeryFach/distributed-counter/internal/cluster"
@@ -24,8 +23,20 @@ import (
 	"github.com/VeryFach/distributed-counter/internal/persistence"
 	"github.com/VeryFach/distributed-counter/internal/server"
 	"github.com/VeryFach/distributed-counter/internal/service"
+	"github.com/VeryFach/distributed-counter/pkg/grpcutil"
 	"github.com/VeryFach/distributed-counter/pkg/logger"
 )
+
+// dialConfig carries the shared client settings (auth + compression) used
+// for all outbound cluster connections.
+type dialConfig struct {
+	apiKey      string
+	compression bool
+}
+
+func dialOpts(d dialConfig) []grpc.DialOption {
+	return append(grpcutil.DialOptions(d.apiKey, d.compression), grpc.WithBlock())
+}
 
 func main() {
 	// Parse command line flags
@@ -92,12 +103,35 @@ func main() {
 		}
 	}
 
+	// Write-Ahead Log: durable mutations between periodic snapshots. When
+	// enabled, Redis is refreshed only by the snapshot loop and the WAL is
+	// replayed on restart to cover the gap.
+	var wal *persistence.WALStore
+	if cfg.WALEnabled {
+		wal, err = persistence.NewWALStore(cfg.WALDir)
+		if err != nil {
+			zlog.Warn("Failed to init WAL, running without it", zap.Error(err))
+		} else {
+			counterSvc.SetWAL(wal)
+			if replayErr := counterSvc.ReplayWAL(); replayErr != nil {
+				zlog.Warn("Failed to replay WAL", zap.Error(replayErr))
+			}
+			zlog.Info("WAL enabled",
+				zap.String("wal_dir", cfg.WALDir),
+				zap.Int("snapshot_interval_seconds", cfg.SnapshotIntervalSeconds),
+			)
+			defer wal.Close()
+		}
+	}
+
 	membership := cluster.NewMembership(
 		cfg.NodeID,
 	)
 	membership.AddMember(cfg.NodeID, localAddress)
 
 	counterSvc.SetCluster(membership)
+
+	clientDial := dialConfig{apiKey: cfg.APIKey, compression: cfg.CompressionEnabled}
 
 	gossipEngine := gossip.NewGossipEngine(
 		cfg.NodeID,
@@ -107,19 +141,29 @@ func main() {
 		gossipInterval,
 		zlog,
 	)
+	gossipEngine.SetWAL(wal)
+	gossipEngine.SetClientConfig(cfg.APIKey, cfg.CompressionEnabled)
+	counterSvc.SetClientConfig(cfg.APIKey, cfg.CompressionEnabled)
+	counterSvc.SetOnReset(gossipEngine.InvalidateBaselines)
 
-	// Create gRPC server
-	grpcServer := server.NewGRPCServer(cfg.GRPCPort, counterSvc, gossipEngine)
+	// Create gRPC server with auth + rate limiting middleware
+	grpcServer := server.NewGRPCServer(cfg.GRPCPort, counterSvc, gossipEngine, server.MiddlewareConfig{
+		NodeID:             cfg.NodeID,
+		Logger:             zlog,
+		AuthEnabled:        cfg.AuthEnabled,
+		APIKey:             cfg.APIKey,
+		RateLimitPerSecond: cfg.RateLimitPerSecond,
+	})
 	serverErrCh := make(chan error, 1)
 	go func() {
 		serverErrCh <- grpcServer.Start()
 	}()
 
-	if err := waitForLocalServer(localAddress); err != nil {
+	if err := waitForLocalServer(localAddress, clientDial); err != nil {
 		zlog.Warn("Local gRPC server did not become ready before bootstrap", zap.Error(err))
 	}
 
-	if err := joinCluster(cfg.NodeID, localAddress, cfg.SeedNodes, membership, zlog); err != nil {
+	if err := joinCluster(cfg.NodeID, localAddress, cfg.SeedNodes, membership, zlog, clientDial); err != nil {
 		zlog.Warn("Cluster bootstrap completed with no reachable seed nodes", zap.Error(err))
 	}
 
@@ -132,6 +176,7 @@ func main() {
 		membership,
 		counterSvc,
 		zlog,
+		clientDial,
 	); err != nil {
 		zlog.Warn("Cluster recovery completed without state sync", zap.Error(err))
 	}
@@ -141,8 +186,24 @@ func main() {
 	runtimeCtx, runtimeCancel := context.WithCancel(context.Background())
 	defer runtimeCancel()
 
-	go runHeartbeatLoop(runtimeCtx, cfg.NodeID, localAddress, heartbeatInterval, membership, zlog)
+	go runHeartbeatLoop(runtimeCtx, cfg.NodeID, localAddress, heartbeatInterval, membership, zlog, clientDial)
 	go runFailureDetectionLoop(runtimeCtx, staleTimeout, membership, zlog)
+
+	// SWIM failure detector (PING / PING_REQ / ACK)
+	swim := cluster.NewSWIMDetector(cluster.SWIMConfig{
+		NodeID:                 cfg.NodeID,
+		Membership:             membership,
+		Logger:                 zlog,
+		APIKey:                 cfg.APIKey,
+		Compression:            cfg.CompressionEnabled,
+		ProtocolPeriod:         time.Duration(cfg.SwimInterval) * time.Second,
+		ProbeTimeout:           time.Duration(cfg.SwimProbeTimeout) * time.Second,
+		SuspectToDeadThreshold: cfg.SwimSuspectToDead,
+	})
+	go swim.Start()
+
+	// Periodic snapshots keep the WAL bounded.
+	go runSnapshotLoop(runtimeCtx, counterSvc, time.Duration(cfg.SnapshotIntervalSeconds)*time.Second)
 
 	go gossipEngine.Start()
 
@@ -155,6 +216,7 @@ func main() {
 
 		zlog.Info("Received shutdown signal, stopping server...")
 		runtimeCancel()
+		swim.Stop()
 		gossipEngine.Stop()
 		grpcServer.Stop()
 		done <- true
@@ -181,15 +243,14 @@ func main() {
 	zlog.Info("Server stopped")
 }
 
-func waitForLocalServer(address string) error {
+func waitForLocalServer(address string, d dialConfig) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	conn, err := grpc.DialContext(
 		ctx,
 		address,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
+		dialOpts(d)...,
 	)
 	if err != nil {
 		return err
@@ -205,6 +266,7 @@ func joinCluster(
 	seedNodes []string,
 	membership *cluster.Membership,
 	logger *zap.Logger,
+	d dialConfig,
 ) error {
 	var lastErr error
 
@@ -213,8 +275,7 @@ func joinCluster(
 		conn, err := grpc.DialContext(
 			ctx,
 			seedAddr,
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
-			grpc.WithBlock(),
+			dialOpts(d)...,
 		)
 		if err != nil {
 			cancel()
@@ -252,10 +313,10 @@ func joinCluster(
 			}
 
 			for _, member := range memberList.Members {
-				membership.AddOrUpdateMember(
+				membership.AddOrUpdateMemberStatus(
 					member.NodeId,
 					member.Address,
-					member.IsActive,
+					cluster.StatusFromProto(member.Status),
 					time.Unix(member.LastHeartbeat, 0),
 				)
 			}
@@ -280,6 +341,7 @@ func runHeartbeatLoop(
 	interval time.Duration,
 	membership *cluster.Membership,
 	logger *zap.Logger,
+	d dialConfig,
 ) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -289,7 +351,7 @@ func runHeartbeatLoop(
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			sendHeartbeats(nodeID, localAddress, membership, logger)
+			sendHeartbeats(nodeID, localAddress, membership, logger, d)
 		}
 	}
 }
@@ -299,13 +361,14 @@ func sendHeartbeats(
 	localAddress string,
 	membership *cluster.Membership,
 	logger *zap.Logger,
+	d dialConfig,
 ) {
 	for _, member := range membership.GetMembers() {
 		if member.ID == nodeID || member.Address == localAddress {
 			continue
 		}
 
-		if err := pingHeartbeat(member.Address, nodeID, logger); err != nil {
+		if err := pingHeartbeat(member.Address, nodeID, localAddress, logger, d); err != nil {
 			membership.MarkInactive(member.ID)
 			logger.Debug("Heartbeat failed", zap.String("member", member.ID), zap.Error(err))
 			continue
@@ -315,15 +378,14 @@ func sendHeartbeats(
 	}
 }
 
-func pingHeartbeat(address, nodeID string, logger *zap.Logger) error {
+func pingHeartbeat(address, nodeID, localAddress string, logger *zap.Logger, d dialConfig) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
 	conn, err := grpc.DialContext(
 		ctx,
 		address,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
+		dialOpts(d)...,
 	)
 	if err != nil {
 		return err
@@ -334,6 +396,7 @@ func pingHeartbeat(address, nodeID string, logger *zap.Logger) error {
 	resp, err := client.Heartbeat(ctx, &pb.HeartbeatRequest{
 		NodeId:    nodeID,
 		Timestamp: time.Now().Unix(),
+		Address:   localAddress,
 	})
 	if err != nil {
 		return err
@@ -364,7 +427,7 @@ func runFailureDetectionLoop(
 		case <-ticker.C:
 			staleMembers := membership.MarkStale(threshold)
 			for _, memberID := range staleMembers {
-				logger.Warn("Node marked inactive", zap.String("member", memberID))
+				logger.Warn("Node status escalated", zap.String("member", memberID))
 			}
 		}
 	}
@@ -377,6 +440,7 @@ func recoverStateFromSeedNodes(
 	membership *cluster.Membership,
 	counterSvc *service.CounterService,
 	logger *zap.Logger,
+	d dialConfig,
 ) error {
 	var lastErr error
 	const (
@@ -401,8 +465,7 @@ func recoverStateFromSeedNodes(
 			conn, err := grpc.DialContext(
 				ctx,
 				seedAddr,
-				grpc.WithTransportCredentials(insecure.NewCredentials()),
-				grpc.WithBlock(),
+				dialOpts(d)...,
 			)
 			if err != nil {
 				cancel()
@@ -486,6 +549,26 @@ func recoverStateFromSeedNodes(
 	}
 
 	return lastErr
+}
+
+// runSnapshotLoop periodically persists the full CRDT state and truncates
+// the WAL, keeping the log bounded between snapshots.
+func runSnapshotLoop(ctx context.Context, counterSvc *service.CounterService, interval time.Duration) {
+	if interval <= 0 {
+		interval = 30 * time.Second
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			counterSvc.Snapshot()
+		}
+	}
 }
 
 func uniqueOrderedSeeds(seedNodes []string) []string {

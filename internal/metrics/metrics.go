@@ -74,6 +74,21 @@ var (
 		},
 		[]string{"node_id"},
 	)
+	// Rate limiting & auth rejections
+	RateLimitedTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "rpc_rate_limited_total",
+			Help: "Total number of RPC requests rejected by the rate limiter",
+		},
+		[]string{"node_id", "method"},
+	)
+	AuthRejectedTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "rpc_auth_rejected_total",
+			Help: "Total number of RPC requests rejected due to invalid credentials",
+		},
+		[]string{"node_id", "method"},
+	)
 )
 
 func UpdateCounterValue(nodeID string, value int64) {
@@ -115,4 +130,12 @@ func SetRecoveryInProgress(nodeID string, inProgress bool) {
 	}
 
 	RecoveryInProgress.WithLabelValues(nodeID).Set(0)
+}
+
+func IncRateLimited(nodeID, method string) {
+	RateLimitedTotal.WithLabelValues(nodeID, method).Inc()
+}
+
+func IncAuthRejected(nodeID, method string) {
+	AuthRejectedTotal.WithLabelValues(nodeID, method).Inc()
 }

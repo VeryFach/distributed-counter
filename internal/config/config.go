@@ -20,6 +20,22 @@ type Config struct {
 	RedisAddr          string   `mapstructure:"redis_addr"`
 	RedisPassword      string   `mapstructure:"redis_password"`
 	RedisDB            int      `mapstructure:"redis_db"`
+
+	// Phase 4: Write-Ahead Log & periodic snapshots.
+	WALEnabled              bool   `mapstructure:"wal_enabled"`
+	WALDir                  string `mapstructure:"wal_dir"`
+	SnapshotIntervalSeconds int    `mapstructure:"snapshot_interval_seconds"`
+
+	// Phase 3: SWIM failure detection.
+	SwimInterval        int `mapstructure:"swim_interval"`
+	SwimProbeTimeout    int `mapstructure:"swim_probe_timeout"`
+	SwimSuspectToDead   int `mapstructure:"swim_suspect_to_dead"`
+
+	// Phase 5: production features.
+	AuthEnabled         bool   `mapstructure:"auth_enabled"`
+	APIKey              string `mapstructure:"api_key"`
+	RateLimitPerSecond  int    `mapstructure:"rate_limit_per_second"`
+	CompressionEnabled  bool   `mapstructure:"compression_enabled"`
 }
 
 func Load(configPath string) (*Config, error) {
@@ -46,6 +62,21 @@ func Load(configPath string) (*Config, error) {
 	}
 	if cfg.HeartbeatTimeout <= 0 {
 		cfg.HeartbeatTimeout = int((10 * time.Second).Seconds())
+	}
+	if cfg.SnapshotIntervalSeconds <= 0 {
+		cfg.SnapshotIntervalSeconds = int((30 * time.Second).Seconds())
+	}
+	if cfg.SwimInterval <= 0 {
+		cfg.SwimInterval = 1
+	}
+	if cfg.SwimProbeTimeout <= 0 {
+		cfg.SwimProbeTimeout = 2
+	}
+	if cfg.SwimSuspectToDead <= 0 {
+		cfg.SwimSuspectToDead = 3
+	}
+	if cfg.WALDir == "" {
+		cfg.WALDir = "data"
 	}
 
 	return &cfg, nil

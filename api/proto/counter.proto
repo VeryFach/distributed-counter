@@ -19,6 +19,18 @@ service CounterService {
     // Membership Management - Server Streaming
     rpc JoinCluster(JoinRequest) returns (stream MemberList);
     rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+
+    // SWIM Failure Detector
+    rpc SwimPing(SwimPingRequest) returns (SwimPingResponse);
+    rpc SwimPingReq(SwimPingReqRequest) returns (SwimPingReqResponse);
+}
+
+// Member lifecycle states used by the gossip membership protocol.
+enum MemberStatus {
+    MEMBER_ALIVE = 0;
+    MEMBER_SUSPECT = 1;
+    MEMBER_DEAD = 2;
+    MEMBER_LEFT = 3;
 }
 
 // Request & Response Messages
@@ -82,6 +94,10 @@ message StateUpdate {
     // Version of the sender's state (max vector clock value). Lets the
     // receiver skip redundant merges and enables delta-only gossip.
     int64 last_sync_version = 7;
+
+    // Membership gossip: node_id -> lifecycle status. Lets Suspect/Dead
+    // transitions propagate through the cluster without a dedicated RPC.
+    map<string, MemberStatus> membership = 8;
 }
 
 // Membership Messages
@@ -102,12 +118,14 @@ message Member {
     bool is_active = 3;
     int64 last_heartbeat = 4;
     int64 counter_value = 5;
+    MemberStatus status = 6;
 }
 
 message HeartbeatRequest {
     string node_id = 1;
     int64 current_value = 2;
     int64 timestamp = 3;
+    string address = 4;
 }
 
 message HeartbeatResponse {
@@ -115,4 +133,29 @@ message HeartbeatResponse {
     string message = 2;
     int64 cluster_size = 3;
     repeated Member active_members = 4;
+}
+
+// SWIM failure detector messages
+message SwimPingRequest {
+    string from_node_id = 1;
+    string target_node_id = 2;
+    int64 message_id = 3;
+}
+
+message SwimPingResponse {
+    string node_id = 1;
+    bool alive = 2;
+    int64 message_id = 3;
+}
+
+message SwimPingReqRequest {
+    string from_node_id = 1;
+    string target_node_id = 2;
+    int64 message_id = 3;
+}
+
+message SwimPingReqResponse {
+    string node_id = 1;
+    bool alive = 2;
+    int64 message_id = 3;
 }

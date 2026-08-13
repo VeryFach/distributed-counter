@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/peer"
 
 	pb "github.com/VeryFach/distributed-counter/api/proto"
@@ -15,6 +16,7 @@ import (
 	"github.com/VeryFach/distributed-counter/internal/crdt"
 	"github.com/VeryFach/distributed-counter/internal/metrics"
 	"github.com/VeryFach/distributed-counter/internal/persistence"
+	"github.com/VeryFach/distributed-counter/pkg/grpcutil"
 )
 
 type CounterService struct {
@@ -27,11 +29,17 @@ type CounterService struct {
 	logger   *zap.Logger
 	onUpdate func(*pb.StateUpdate)
 	store    persistence.Store
+	wal      *persistence.WALStore
+	onReset  func()
 
 	// lastSyncClock tracks, per sender, the vector clock we last replied
 	// with, so delta replies never resend identical state.
 	mu            sync.Mutex
 	lastSyncClock map[string]map[string]int64
+
+	// apiKey enables auth on the SWIM indirect probe dials.
+	apiKey      string
+	compression bool
 }
 
 func NewCounterService(nodeID string, port int, logger *zap.Logger) *CounterService {
@@ -63,6 +71,7 @@ func (s *CounterService) Increment(ctx context.Context, req *pb.IncrementRequest
 	metrics.IncIncrementTotal(s.nodeID)
 	metrics.UpdateCounterValue(s.nodeID, s.counter.Value())
 
+	s.walAppend("increment", delta, nil, nil, nil)
 	s.persist()
 
 	return s.buildResponse(), nil
@@ -82,6 +91,7 @@ func (s *CounterService) Decrement(ctx context.Context, req *pb.DecrementRequest
 	metrics.IncDecrementTotal(s.nodeID)
 	metrics.UpdateCounterValue(s.nodeID, s.counter.Value())
 
+	s.walAppend("decrement", delta, nil, nil, nil)
 	s.persist()
 
 	return s.buildResponse(), nil
@@ -100,8 +110,13 @@ func (s *CounterService) Reset(ctx context.Context, req *pb.ResetRequest) (*pb.C
 	s.lastSyncClock = make(map[string]map[string]int64)
 	s.mu.Unlock()
 
+	if s.onReset != nil {
+		s.onReset()
+	}
+
 	metrics.UpdateCounterValue(s.nodeID, s.counter.Value())
 
+	s.walAppend("reset", 0, nil, nil, nil)
 	s.persist()
 
 	return s.buildResponse(), nil
@@ -139,6 +154,7 @@ func (s *CounterService) JoinCluster(
 				IsActive:      member.IsActive,
 				LastHeartbeat: member.LastHeartbeat.Unix(),
 				CounterValue:  member.CounterValue,
+				Status:        member.Status.ToProto(),
 			})
 		}
 	}
@@ -149,6 +165,7 @@ func (s *CounterService) JoinCluster(
 			Address:       req.Address,
 			IsActive:      true,
 			LastHeartbeat: time.Now().Unix(),
+			Status:        pb.MemberStatus_MEMBER_ALIVE,
 		})
 	}
 
@@ -160,15 +177,15 @@ func (s *CounterService) JoinCluster(
 
 func (s *CounterService) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*pb.HeartbeatResponse, error) {
 	if s.cluster != nil {
-		if _, exists := s.cluster.GetMember(req.NodeId); exists {
-			s.cluster.UpdateHeartbeat(req.NodeId)
-		} else {
-			remoteAddress := ""
+		// Prefer the sender's advertised address so members are never
+		// recorded with an ephemeral source port.
+		remoteAddress := req.Address
+		if remoteAddress == "" {
 			if remotePeer, ok := peer.FromContext(ctx); ok && remotePeer.Addr != nil {
 				remoteAddress = remotePeer.Addr.String()
 			}
-			s.cluster.AddOrUpdateMember(req.NodeId, remoteAddress, true, time.Unix(req.Timestamp, 0))
 		}
+		s.cluster.AddOrUpdateMember(req.NodeId, remoteAddress, true, time.Unix(req.Timestamp, 0))
 	}
 
 	activeMembers := make([]*pb.Member, 0)
@@ -182,6 +199,7 @@ func (s *CounterService) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest
 					IsActive:      member.IsActive,
 					LastHeartbeat: member.LastHeartbeat.Unix(),
 					CounterValue:  member.CounterValue,
+					Status:        member.Status.ToProto(),
 				})
 			}
 		}
@@ -194,6 +212,61 @@ func (s *CounterService) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest
 		ClusterSize:   clusterSize,
 		ActiveMembers: activeMembers,
 	}, nil
+}
+
+// SwimPing is the SWIM direct probe. Reaching this handler means the node
+// is alive, so it always acknowledges.
+func (s *CounterService) SwimPing(ctx context.Context, req *pb.SwimPingRequest) (*pb.SwimPingResponse, error) {
+	return &pb.SwimPingResponse{
+		NodeId:    s.nodeID,
+		Alive:     true,
+		MessageId: req.MessageId,
+	}, nil
+}
+
+// SwimPingReq is the SWIM indirect probe. The requester could not reach the
+// target directly, so this node pings the target on its behalf and reports
+// the result back.
+func (s *CounterService) SwimPingReq(ctx context.Context, req *pb.SwimPingReqRequest) (*pb.SwimPingReqResponse, error) {
+	alive := false
+	if s.cluster != nil {
+		if target, exists := s.cluster.GetMember(req.TargetNodeId); exists && target.Status == cluster.StatusAlive {
+			alive = s.pingTarget(ctx, target.Address)
+		}
+	}
+
+	return &pb.SwimPingReqResponse{
+		NodeId:    s.nodeID,
+		Alive:     alive,
+		MessageId: req.MessageId,
+	}, nil
+}
+
+// pingTarget performs a direct SWIM ping to the given address.
+func (s *CounterService) pingTarget(ctx context.Context, address string) bool {
+	pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	opts := append(grpcutil.DialOptions(s.apiKey, s.compression), grpc.WithBlock())
+	conn, err := grpc.DialContext(
+		pingCtx,
+		address,
+		opts...,
+	)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+
+	client := pb.NewCounterServiceClient(conn)
+	resp, err := client.SwimPing(pingCtx, &pb.SwimPingRequest{
+		FromNodeId:   s.nodeID,
+		TargetNodeId: address,
+	})
+	if err != nil {
+		return false
+	}
+	return resp.Alive
 }
 
 func (s *CounterService) buildResponse() *pb.CounterResponse {
@@ -259,12 +332,18 @@ func (s *CounterService) SyncState(
 		s.counter.Merge(remote)
 		s.clock.MergeMap(update.VectorClock)
 
+		// Merge membership lifecycle gossip (Suspect/Dead/Left).
+		if s.cluster != nil && len(update.Membership) > 0 {
+			s.cluster.ApplyMembership(update.Membership)
+		}
+
 		metrics.UpdateCounterValue(
 			s.nodeID,
 			s.counter.Value(),
 		)
 		metrics.IncGossipReceived(s.nodeID)
 
+		s.walAppend("merge", 0, update.PositiveState, update.NegativeState, update.VectorClock)
 		s.persist()
 
 		// Balas dengan delta (atau full state) supaya peer bisa merge.
@@ -308,6 +387,7 @@ func (s *CounterService) buildDeltaReply(update *pb.StateUpdate) *pb.StateUpdate
 		Timestamp:       time.Now().Unix(),
 		Type:            pb.StateUpdate_DELTA_UPDATE,
 		LastSyncVersion: crdt.MaxClock(base),
+		Membership:      s.membershipGossip(),
 	}
 }
 
@@ -322,11 +402,27 @@ func (s *CounterService) buildFullReply() *pb.StateUpdate {
 		Timestamp:       time.Now().Unix(),
 		Type:            pb.StateUpdate_FULL_STATE,
 		LastSyncVersion: crdt.MaxClock(myClock),
+		Membership:      s.membershipGossip(),
 	}
 }
 
-// persist writes the current CRDT state to the configured store.
+// membershipGossip returns the current member status map to piggyback on
+// state updates, or nil when the cluster is not wired yet.
+func (s *CounterService) membershipGossip() map[string]pb.MemberStatus {
+	if s.cluster == nil {
+		return nil
+	}
+	return s.cluster.GossipMembership()
+}
+
+// persist writes the current CRDT state to the configured store. When a WAL
+// is enabled the log is the durability mechanism and the store is refreshed
+// only by the periodic snapshot loop; without a WAL the store is updated on
+// every operation.
 func (s *CounterService) persist() {
+	if s.wal != nil {
+		return
+	}
 	if s.store == nil {
 		return
 	}
@@ -365,6 +461,105 @@ func (s *CounterService) Restore(state *persistence.CounterState) {
 // SetStore injects the persistence store used to survive restarts.
 func (s *CounterService) SetStore(store persistence.Store) {
 	s.store = store
+}
+
+// SetClientConfig configures auth + compression for outbound cluster dials
+// made by this service (SWIM indirect probes).
+func (s *CounterService) SetClientConfig(apiKey string, compression bool) {
+	s.apiKey = apiKey
+	s.compression = compression
+}
+
+// SetOnReset registers a callback invoked after a local Reset, letting the
+// gossip engine drop its stale delta baselines.
+func (s *CounterService) SetOnReset(fn func()) {
+	s.onReset = fn
+}
+
+// SetWAL injects the write-ahead log used to survive crashes between
+// snapshots.
+func (s *CounterService) SetWAL(wal *persistence.WALStore) {
+	s.wal = wal
+}
+
+// walAppend records a mutation in the WAL before it is considered durable.
+func (s *CounterService) walAppend(op string, delta int64, positive, negative, clock map[string]int64) {
+	if s.wal == nil {
+		return
+	}
+
+	if err := s.wal.Append(s.nodeID, op, delta, positive, negative, clock); err != nil {
+		s.logger.Error("Failed to append WAL entry", zap.String("op", op), zap.Error(err))
+	}
+}
+
+// ReplayWAL applies previously logged mutations back into the CRDT after a
+// restart, restoring any state that fell between snapshots.
+func (s *CounterService) ReplayWAL() error {
+	if s.wal == nil {
+		return nil
+	}
+
+	entries, err := s.wal.Replay(s.nodeID)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		switch entry.Op {
+		case "increment":
+			s.counter.Increment(entry.Delta)
+			s.clock.Increment()
+		case "decrement":
+			s.counter.Decrement(entry.Delta)
+			s.clock.Increment()
+		case "reset":
+			s.counter.Reset()
+			s.clock.Reset()
+		case "merge":
+			remote := crdt.NewPNCounter("")
+			remote.SetPositive(entry.Positive)
+			remote.SetNegative(entry.Negative)
+			s.counter.Merge(remote)
+			s.clock.MergeMap(entry.Clock)
+		}
+	}
+
+	if len(entries) > 0 {
+		metrics.UpdateCounterValue(s.nodeID, s.counter.Value())
+		s.logger.Info("Replayed WAL entries",
+			zap.Int("count", len(entries)),
+			zap.Int64("value", s.counter.Value()))
+	}
+
+	return nil
+}
+
+// Snapshot persists the full CRDT state to the store and truncates the WAL,
+// keeping the log bounded between snapshots.
+func (s *CounterService) Snapshot() {
+	if s.store == nil {
+		return
+	}
+
+	state := persistence.CounterState{
+		Positive: s.counter.Positive(),
+		Negative: s.counter.Negative(),
+		Clock:    s.clock.State(),
+	}
+
+	if err := s.store.Save(s.nodeID, state); err != nil {
+		s.logger.Error("Failed to take snapshot", zap.Error(err))
+		return
+	}
+
+	if s.wal != nil {
+		if err := s.wal.Truncate(s.nodeID); err != nil {
+			s.logger.Error("Failed to truncate WAL after snapshot", zap.Error(err))
+		}
+	}
+
+	s.logger.Debug("Snapshot taken", zap.Int64("value", s.counter.Value()))
 }
 
 func (s *CounterService) Counter() *crdt.PNCounter {

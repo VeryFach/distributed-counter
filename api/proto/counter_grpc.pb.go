@@ -27,6 +27,8 @@ const (
 	CounterService_SyncState_FullMethodName   = "/counter.CounterService/SyncState"
 	CounterService_JoinCluster_FullMethodName = "/counter.CounterService/JoinCluster"
 	CounterService_Heartbeat_FullMethodName   = "/counter.CounterService/Heartbeat"
+	CounterService_SwimPing_FullMethodName    = "/counter.CounterService/SwimPing"
+	CounterService_SwimPingReq_FullMethodName = "/counter.CounterService/SwimPingReq"
 )
 
 // CounterServiceClient is the client API for CounterService service.
@@ -46,6 +48,9 @@ type CounterServiceClient interface {
 	// Membership Management - Server Streaming
 	JoinCluster(ctx context.Context, in *JoinRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[MemberList], error)
 	Heartbeat(ctx context.Context, in *HeartbeatRequest, opts ...grpc.CallOption) (*HeartbeatResponse, error)
+	// SWIM Failure Detector
+	SwimPing(ctx context.Context, in *SwimPingRequest, opts ...grpc.CallOption) (*SwimPingResponse, error)
+	SwimPingReq(ctx context.Context, in *SwimPingReqRequest, opts ...grpc.CallOption) (*SwimPingReqResponse, error)
 }
 
 type counterServiceClient struct {
@@ -148,6 +153,26 @@ func (c *counterServiceClient) Heartbeat(ctx context.Context, in *HeartbeatReque
 	return out, nil
 }
 
+func (c *counterServiceClient) SwimPing(ctx context.Context, in *SwimPingRequest, opts ...grpc.CallOption) (*SwimPingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SwimPingResponse)
+	err := c.cc.Invoke(ctx, CounterService_SwimPing_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *counterServiceClient) SwimPingReq(ctx context.Context, in *SwimPingReqRequest, opts ...grpc.CallOption) (*SwimPingReqResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SwimPingReqResponse)
+	err := c.cc.Invoke(ctx, CounterService_SwimPingReq_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CounterServiceServer is the server API for CounterService service.
 // All implementations must embed UnimplementedCounterServiceServer
 // for forward compatibility.
@@ -165,6 +190,9 @@ type CounterServiceServer interface {
 	// Membership Management - Server Streaming
 	JoinCluster(*JoinRequest, grpc.ServerStreamingServer[MemberList]) error
 	Heartbeat(context.Context, *HeartbeatRequest) (*HeartbeatResponse, error)
+	// SWIM Failure Detector
+	SwimPing(context.Context, *SwimPingRequest) (*SwimPingResponse, error)
+	SwimPingReq(context.Context, *SwimPingReqRequest) (*SwimPingReqResponse, error)
 	mustEmbedUnimplementedCounterServiceServer()
 }
 
@@ -198,6 +226,12 @@ func (UnimplementedCounterServiceServer) JoinCluster(*JoinRequest, grpc.ServerSt
 }
 func (UnimplementedCounterServiceServer) Heartbeat(context.Context, *HeartbeatRequest) (*HeartbeatResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Heartbeat not implemented")
+}
+func (UnimplementedCounterServiceServer) SwimPing(context.Context, *SwimPingRequest) (*SwimPingResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SwimPing not implemented")
+}
+func (UnimplementedCounterServiceServer) SwimPingReq(context.Context, *SwimPingReqRequest) (*SwimPingReqResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SwimPingReq not implemented")
 }
 func (UnimplementedCounterServiceServer) mustEmbedUnimplementedCounterServiceServer() {}
 func (UnimplementedCounterServiceServer) testEmbeddedByValue()                        {}
@@ -346,6 +380,42 @@ func _CounterService_Heartbeat_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CounterService_SwimPing_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SwimPingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CounterServiceServer).SwimPing(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CounterService_SwimPing_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CounterServiceServer).SwimPing(ctx, req.(*SwimPingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CounterService_SwimPingReq_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SwimPingReqRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CounterServiceServer).SwimPingReq(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CounterService_SwimPingReq_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CounterServiceServer).SwimPingReq(ctx, req.(*SwimPingReqRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // CounterService_ServiceDesc is the grpc.ServiceDesc for CounterService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -376,6 +446,14 @@ var CounterService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Heartbeat",
 			Handler:    _CounterService_Heartbeat_Handler,
+		},
+		{
+			MethodName: "SwimPing",
+			Handler:    _CounterService_SwimPing_Handler,
+		},
+		{
+			MethodName: "SwimPingReq",
+			Handler:    _CounterService_SwimPingReq_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

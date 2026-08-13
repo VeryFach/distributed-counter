@@ -10,6 +10,19 @@ persistence_enabled: true
 redis_addr: localhost:6379
 redis_password: ""
 redis_db: 0
+# Write-Ahead Log + periodic snapshots
+wal_enabled: true
+wal_dir: data
+snapshot_interval_seconds: 30
+# SWIM failure detection
+swim_interval: 1
+swim_probe_timeout: 2
+swim_suspect_to_dead: 3
+# Production features
+auth_enabled: false
+api_key: ""
+rate_limit_per_second: 0
+compression_enabled: true
 seed_nodes:
   - node-b:50052
   - node-c:50053
