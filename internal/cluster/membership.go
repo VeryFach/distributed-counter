@@ -76,6 +76,9 @@ type Member struct {
 	// SuspectCount tracks consecutive failed probes while in Suspect,
 	// letting the failure detector escalate Suspect -> Dead.
 	SuspectCount int
+	// Priority is the Bully election priority, learned from heartbeats and
+	// the join protocol.
+	Priority int64
 }
 
 func (m *Member) setStatus(s Status) {
@@ -142,6 +145,17 @@ func (m *Membership) UpdateHeartbeat(id string) {
 		member.LastHeartbeat = time.Now()
 		member.setStatus(StatusAlive)
 		member.SuspectCount = 0
+	}
+}
+
+// SetPriority records the Bully election priority of a member. Priorities
+// are learned from the heartbeat/join protocols and drive leader election.
+func (m *Membership) SetPriority(id string, priority int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if member, exists := m.members[id]; exists {
+		member.Priority = priority
 	}
 }
 

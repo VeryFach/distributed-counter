@@ -29,6 +29,8 @@ trace_endpoint: localhost:4317
 trace_sample_ratio: 1.0
 # Multi-counter sharding (deterministic shard assignment per counter name)
 counter_shards: 3
+node_priority: 1
+election_interval: 2
 seed_nodes:
   - node-b:50052
   - node-c:50053

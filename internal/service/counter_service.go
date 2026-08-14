@@ -19,6 +19,7 @@ import (
 	pb "github.com/VeryFach/distributed-counter/api/proto"
 	"github.com/VeryFach/distributed-counter/internal/cluster"
 	"github.com/VeryFach/distributed-counter/internal/crdt"
+	"github.com/VeryFach/distributed-counter/internal/election"
 	"github.com/VeryFach/distributed-counter/internal/metrics"
 	"github.com/VeryFach/distributed-counter/internal/persistence"
 	"github.com/VeryFach/distributed-counter/pkg/grpcutil"
@@ -52,6 +53,10 @@ type CounterService struct {
 	// counterShards is the number of shards used by Shard() for the
 	// deterministic assignment of counters to shards (default 1).
 	counterShards int
+
+	// bully drives the Bully leader election; nil until wired.
+	bully    *election.Bully
+	priority int64
 
 	// apiKey enables auth on the SWIM indirect probe dials.
 	apiKey      string
@@ -297,14 +302,44 @@ func (s *CounterService) SetShardCount(n int) {
 }
 
 func (s *CounterService) GetNodeInfo(ctx context.Context, req *pb.GetNodeInfoRequest) (*pb.NodeInfo, error) {
+	leaderID := ""
+	isLeader := false
+	if s.bully != nil {
+		leaderID = s.bully.LeaderID()
+		isLeader = s.bully.IsLeader()
+	}
+
 	return &pb.NodeInfo{
 		NodeId:       s.nodeID,
 		Address:      fmt.Sprintf("localhost:%d", s.getPort()),
 		CounterValue: s.counter.ValueName(defaultCounter),
 		Version:      s.clock.String(),
-		IsLeader:     false,
+		IsLeader:     isLeader,
 		LastSeen:     time.Now().Unix(),
+		LeaderId:     leaderID,
+		Priority:     s.priority,
 	}, nil
+}
+
+// Election answers a Bully election probe on behalf of the local election
+// instance. Without a wired election it acks anyway so callers never hang.
+func (s *CounterService) Election(ctx context.Context, req *pb.ElectionRequest) (*pb.ElectionResponse, error) {
+	if s.bully != nil {
+		return s.bully.HandleElection(ctx, req), nil
+	}
+	return &pb.ElectionResponse{
+		NodeId:   s.nodeID,
+		Ok:       true,
+		Priority: s.priority,
+	}, nil
+}
+
+// Coordinator records a Bully coordinator announcement.
+func (s *CounterService) Coordinator(ctx context.Context, req *pb.CoordinatorRequest) (*pb.CoordinatorResponse, error) {
+	if s.bully != nil {
+		return s.bully.HandleCoordinator(ctx, req), nil
+	}
+	return &pb.CoordinatorResponse{Success: true}, nil
 }
 
 func (s *CounterService) JoinCluster(
@@ -325,6 +360,7 @@ func (s *CounterService) JoinCluster(
 				LastHeartbeat: member.LastHeartbeat.Unix(),
 				CounterValue:  member.CounterValue,
 				Status:        member.Status.ToProto(),
+				Priority:      member.Priority,
 			})
 		}
 	}
@@ -356,6 +392,9 @@ func (s *CounterService) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest
 			}
 		}
 		s.cluster.AddOrUpdateMember(req.NodeId, remoteAddress, true, time.Unix(req.Timestamp, 0))
+		if req.Priority > 0 {
+			s.cluster.SetPriority(req.NodeId, req.Priority)
+		}
 	}
 
 	activeMembers := make([]*pb.Member, 0)
@@ -370,6 +409,7 @@ func (s *CounterService) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest
 					LastHeartbeat: member.LastHeartbeat.Unix(),
 					CounterValue:  member.CounterValue,
 					Status:        member.Status.ToProto(),
+					Priority:      member.Priority,
 				})
 			}
 		}
@@ -448,6 +488,7 @@ func (s *CounterService) buildResponse(name string) *pb.CounterResponse {
 				Address:      member.Address,
 				CounterValue: member.CounterValue,
 				LastSeen:     member.LastHeartbeat.Unix(),
+				Priority:     member.Priority,
 			})
 		}
 	}
@@ -767,4 +808,16 @@ func (s *CounterService) Clock() *crdt.VectorClock {
 
 func (s *CounterService) Cluster() *cluster.Membership {
 	return s.cluster
+}
+
+// SetBully injects the leader election instance used to answer Election and
+// Coordinator RPCs and to report leadership in GetNodeInfo.
+func (s *CounterService) SetBully(b *election.Bully) {
+	s.bully = b
+}
+
+// SetPriority sets this node's Bully election priority, surfaced through
+// GetNodeInfo and the member list.
+func (s *CounterService) SetPriority(priority int64) {
+	s.priority = priority
 }

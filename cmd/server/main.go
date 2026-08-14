@@ -18,6 +18,7 @@ import (
 	"github.com/VeryFach/distributed-counter/internal/cluster"
 	"github.com/VeryFach/distributed-counter/internal/config"
 	"github.com/VeryFach/distributed-counter/internal/crdt"
+	"github.com/VeryFach/distributed-counter/internal/election"
 	"github.com/VeryFach/distributed-counter/internal/gossip"
 	"github.com/VeryFach/distributed-counter/internal/metrics"
 	"github.com/VeryFach/distributed-counter/internal/persistence"
@@ -153,6 +154,22 @@ func main() {
 
 	counterSvc.SetCluster(membership)
 
+	// Leader election (Bully): the live node with the highest priority wins.
+	// Priority propagates through heartbeats so every member knows who to
+	// consult. The leader coordinates cluster management (e.g. snapshots).
+	bully := election.New(election.Config{
+		NodeID:        cfg.NodeID,
+		Priority:      int64(cfg.NodePriority),
+		Membership:    membership,
+		Logger:        zlog,
+		APIKey:        cfg.APIKey,
+		Compression:   cfg.CompressionEnabled,
+		Interval:      time.Duration(cfg.ElectionInterval) * time.Second,
+		LeaderTimeout: staleTimeout,
+	})
+	counterSvc.SetBully(bully)
+	counterSvc.SetPriority(int64(cfg.NodePriority))
+
 	clientDial := dialConfig{apiKey: cfg.APIKey, compression: cfg.CompressionEnabled}
 
 	gossipEngine := gossip.NewGossipEngine(
@@ -208,7 +225,8 @@ func main() {
 	runtimeCtx, runtimeCancel := context.WithCancel(context.Background())
 	defer runtimeCancel()
 
-	go runHeartbeatLoop(runtimeCtx, cfg.NodeID, localAddress, heartbeatInterval, membership, zlog, clientDial)
+	go bully.Run(runtimeCtx)
+	go runHeartbeatLoop(runtimeCtx, cfg.NodeID, localAddress, heartbeatInterval, membership, zlog, clientDial, bully)
 	go runFailureDetectionLoop(runtimeCtx, staleTimeout, membership, zlog)
 
 	// SWIM failure detector (PING / PING_REQ / ACK)
@@ -341,6 +359,9 @@ func joinCluster(
 					cluster.StatusFromProto(member.Status),
 					time.Unix(member.LastHeartbeat, 0),
 				)
+				if member.Priority > 0 {
+					membership.SetPriority(member.NodeId, member.Priority)
+				}
 			}
 			joined = true
 		}
@@ -364,6 +385,7 @@ func runHeartbeatLoop(
 	membership *cluster.Membership,
 	logger *zap.Logger,
 	d dialConfig,
+	bully *election.Bully,
 ) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -373,7 +395,7 @@ func runHeartbeatLoop(
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			sendHeartbeats(nodeID, localAddress, membership, logger, d)
+			sendHeartbeats(nodeID, localAddress, membership, logger, d, bully)
 		}
 	}
 }
@@ -384,13 +406,21 @@ func sendHeartbeats(
 	membership *cluster.Membership,
 	logger *zap.Logger,
 	d dialConfig,
+	bully *election.Bully,
 ) {
+	priority := int64(0)
+	leaderID := ""
+	if bully != nil {
+		priority = bully.Priority()
+		leaderID = bully.LeaderID()
+	}
+
 	for _, member := range membership.GetMembers() {
 		if member.ID == nodeID || member.Address == localAddress {
 			continue
 		}
 
-		if err := pingHeartbeat(member.Address, nodeID, localAddress, logger, d); err != nil {
+		if err := pingHeartbeat(member.Address, nodeID, localAddress, priority, leaderID, logger, d); err != nil {
 			membership.MarkInactive(member.ID)
 			logger.Debug("Heartbeat failed", zap.String("member", member.ID), zap.Error(err))
 			continue
@@ -400,7 +430,7 @@ func sendHeartbeats(
 	}
 }
 
-func pingHeartbeat(address, nodeID, localAddress string, logger *zap.Logger, d dialConfig) error {
+func pingHeartbeat(address, nodeID, localAddress string, priority int64, leaderID string, logger *zap.Logger, d dialConfig) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -419,6 +449,8 @@ func pingHeartbeat(address, nodeID, localAddress string, logger *zap.Logger, d d
 		NodeId:    nodeID,
 		Timestamp: time.Now().Unix(),
 		Address:   localAddress,
+		Priority:  priority,
+		LeaderId:  leaderID,
 	})
 	if err != nil {
 		return err

@@ -25,6 +25,8 @@ tracing_enabled: true
 trace_endpoint: jaeger:4317
 trace_sample_ratio: 1.0
 counter_shards: 3
+node_priority: 1
+election_interval: 2
 seed_nodes:
   - node-b:50052
   - node-c:50053

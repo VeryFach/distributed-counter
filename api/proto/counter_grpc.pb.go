@@ -31,6 +31,8 @@ const (
 	CounterService_Heartbeat_FullMethodName     = "/counter.CounterService/Heartbeat"
 	CounterService_SwimPing_FullMethodName      = "/counter.CounterService/SwimPing"
 	CounterService_SwimPingReq_FullMethodName   = "/counter.CounterService/SwimPingReq"
+	CounterService_Election_FullMethodName      = "/counter.CounterService/Election"
+	CounterService_Coordinator_FullMethodName   = "/counter.CounterService/Coordinator"
 )
 
 // CounterServiceClient is the client API for CounterService service.
@@ -56,6 +58,9 @@ type CounterServiceClient interface {
 	// SWIM Failure Detector
 	SwimPing(ctx context.Context, in *SwimPingRequest, opts ...grpc.CallOption) (*SwimPingResponse, error)
 	SwimPingReq(ctx context.Context, in *SwimPingReqRequest, opts ...grpc.CallOption) (*SwimPingReqResponse, error)
+	// Leader Election (Bully Algorithm)
+	Election(ctx context.Context, in *ElectionRequest, opts ...grpc.CallOption) (*ElectionResponse, error)
+	Coordinator(ctx context.Context, in *CoordinatorRequest, opts ...grpc.CallOption) (*CoordinatorResponse, error)
 }
 
 type counterServiceClient struct {
@@ -198,6 +203,26 @@ func (c *counterServiceClient) SwimPingReq(ctx context.Context, in *SwimPingReqR
 	return out, nil
 }
 
+func (c *counterServiceClient) Election(ctx context.Context, in *ElectionRequest, opts ...grpc.CallOption) (*ElectionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ElectionResponse)
+	err := c.cc.Invoke(ctx, CounterService_Election_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *counterServiceClient) Coordinator(ctx context.Context, in *CoordinatorRequest, opts ...grpc.CallOption) (*CoordinatorResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CoordinatorResponse)
+	err := c.cc.Invoke(ctx, CounterService_Coordinator_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CounterServiceServer is the server API for CounterService service.
 // All implementations must embed UnimplementedCounterServiceServer
 // for forward compatibility.
@@ -221,6 +246,9 @@ type CounterServiceServer interface {
 	// SWIM Failure Detector
 	SwimPing(context.Context, *SwimPingRequest) (*SwimPingResponse, error)
 	SwimPingReq(context.Context, *SwimPingReqRequest) (*SwimPingReqResponse, error)
+	// Leader Election (Bully Algorithm)
+	Election(context.Context, *ElectionRequest) (*ElectionResponse, error)
+	Coordinator(context.Context, *CoordinatorRequest) (*CoordinatorResponse, error)
 	mustEmbedUnimplementedCounterServiceServer()
 }
 
@@ -266,6 +294,12 @@ func (UnimplementedCounterServiceServer) SwimPing(context.Context, *SwimPingRequ
 }
 func (UnimplementedCounterServiceServer) SwimPingReq(context.Context, *SwimPingReqRequest) (*SwimPingReqResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SwimPingReq not implemented")
+}
+func (UnimplementedCounterServiceServer) Election(context.Context, *ElectionRequest) (*ElectionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Election not implemented")
+}
+func (UnimplementedCounterServiceServer) Coordinator(context.Context, *CoordinatorRequest) (*CoordinatorResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Coordinator not implemented")
 }
 func (UnimplementedCounterServiceServer) mustEmbedUnimplementedCounterServiceServer() {}
 func (UnimplementedCounterServiceServer) testEmbeddedByValue()                        {}
@@ -486,6 +520,42 @@ func _CounterService_SwimPingReq_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CounterService_Election_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ElectionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CounterServiceServer).Election(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CounterService_Election_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CounterServiceServer).Election(ctx, req.(*ElectionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CounterService_Coordinator_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CoordinatorRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CounterServiceServer).Coordinator(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CounterService_Coordinator_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CounterServiceServer).Coordinator(ctx, req.(*CoordinatorRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // CounterService_ServiceDesc is the grpc.ServiceDesc for CounterService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -532,6 +602,14 @@ var CounterService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SwimPingReq",
 			Handler:    _CounterService_SwimPingReq_Handler,
+		},
+		{
+			MethodName: "Election",
+			Handler:    _CounterService_Election_Handler,
+		},
+		{
+			MethodName: "Coordinator",
+			Handler:    _CounterService_Coordinator_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

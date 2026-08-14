@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -18,6 +19,7 @@ import (
 
 	pb "github.com/VeryFach/distributed-counter/api/proto"
 	"github.com/VeryFach/distributed-counter/internal/cluster"
+	"github.com/VeryFach/distributed-counter/internal/election"
 	"github.com/VeryFach/distributed-counter/internal/gossip"
 	"github.com/VeryFach/distributed-counter/internal/service"
 )
@@ -30,6 +32,9 @@ type Options struct {
 	// rejoining node is retried quickly. Defaults: 3 failures / 1s cooldown.
 	CircuitFailures int
 	CircuitCooldown time.Duration
+	// Priorities sets the Bully election priority per node. Defaults to
+	// index+1, so later nodes win elections unless overridden.
+	Priorities []int64
 }
 
 // Node is a single in-process cluster member.
@@ -39,11 +44,16 @@ type Node struct {
 	Service    *service.CounterService
 	Membership *cluster.Membership
 	Gossip     *gossip.GossipEngine
+	Bully      *election.Bully
 
 	mu      sync.Mutex
 	running bool
 	server  *grpc.Server
 	lis     net.Listener
+
+	// bullyCancel stops the node's leader-election loop when the node is
+	// stopped, so a halted node cannot keep re-asserting leadership.
+	bullyCancel context.CancelFunc
 }
 
 // Running reports whether the node's gRPC server + gossip engine are up.
@@ -63,6 +73,10 @@ type Cluster struct {
 	Nodes []*Node
 	opts  Options
 	log   *zap.Logger
+
+	// electionCtx is the parent context used for per-node election loops,
+	// recorded by StartLeaderElection so restarted nodes can rejoin.
+	electionCtx context.Context
 }
 
 // Start builds a cluster of n nodes, fully connected (each node knows every
@@ -80,8 +94,18 @@ func Start(t testing.TB, n int, opts Options) *Cluster {
 	if opts.CircuitCooldown <= 0 {
 		opts.CircuitCooldown = time.Second
 	}
+	if len(opts.Priorities) < n {
+		priorities := make([]int64, n)
+		for i := range priorities {
+			priorities[i] = int64(i + 1)
+		}
+		opts.Priorities = priorities
+	}
 
 	log := zap.NewNop()
+	if os.Getenv("HARNESS_DEBUG") == "1" {
+		log, _ = zap.NewDevelopment()
+	}
 	cluster := &Cluster{
 		opts: opts,
 		log:  log,
@@ -103,6 +127,15 @@ func Start(t testing.TB, n int, opts Options) *Cluster {
 				a.Membership.AddMember(b.ID, b.Addr)
 			}
 		}
+	}
+
+	// Every node knows every peer's election priority, so Bully elections
+	// can pick the highest-priority live node.
+	for i, a := range cluster.Nodes {
+		for j, b := range cluster.Nodes {
+			a.Membership.SetPriority(b.ID, opts.Priorities[j])
+		}
+		a.Service.SetPriority(opts.Priorities[i])
 	}
 
 	for _, node := range cluster.Nodes {
@@ -160,6 +193,10 @@ func (c *Cluster) StopNode(i int) {
 		node.mu.Unlock()
 		return
 	}
+	if node.bullyCancel != nil {
+		node.bullyCancel()
+		node.bullyCancel = nil
+	}
 	node.Gossip.Stop()
 	node.server.GracefulStop()
 	node.running = false
@@ -195,6 +232,12 @@ func (c *Cluster) StartNode(i int) {
 	node.lis = lis
 	node.Gossip = eng
 	node.running = true
+
+	// Rejoin the leader election so a restarted node keeps participating.
+	if c.electionCtx != nil {
+		node.Bully = c.newBully(node, i)
+		go node.Bully.Run(c.bullyCtx(c.electionCtx, node))
+	}
 
 	go func() {
 		_ = srv.Serve(lis)
@@ -294,6 +337,47 @@ func (c *Cluster) WaitConverged(t testing.TB, expected int64, timeout time.Durat
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
+}
+
+// StartLeaderElection wires a Bully election instance into every node and
+// runs it against ctx, so tests can exercise leader election and failover.
+func (c *Cluster) StartLeaderElection(ctx context.Context) {
+	c.electionCtx = ctx
+	for i, node := range c.Nodes {
+		node.Bully = c.newBully(node, i)
+		go node.Bully.Run(c.bullyCtx(ctx, node))
+	}
+}
+
+// newBully builds a Bully for node i using the cluster's configured
+// priorities.
+func (c *Cluster) newBully(node *Node, i int) *election.Bully {
+	priority := int64(i + 1)
+	if i < len(c.opts.Priorities) {
+		priority = c.opts.Priorities[i]
+	}
+
+	b := election.New(election.Config{
+		NodeID:        node.ID,
+		Priority:      priority,
+		Membership:    node.Membership,
+		Logger:        c.log,
+		Interval:      200 * time.Millisecond,
+		LeaderTimeout: 2 * time.Second,
+	})
+	node.Service.SetBully(b)
+	node.Service.SetPriority(priority)
+	return b
+}
+
+// bullyCtx derives a per-node context so stopping a node can cancel its
+// election loop independently of the cluster-wide context.
+func (c *Cluster) bullyCtx(parent context.Context, node *Node) context.Context {
+	ctx, cancel := context.WithCancel(parent)
+	node.mu.Lock()
+	node.bullyCancel = cancel
+	node.mu.Unlock()
+	return ctx
 }
 
 // Close stops every node's server and gossip engine.

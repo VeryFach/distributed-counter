@@ -44,6 +44,10 @@ type Config struct {
 
 	// Phase 7: multi-counter support.
 	CounterShards int `mapstructure:"counter_shards"`
+
+	// Phase 7: leader election (Bully).
+	NodePriority    int `mapstructure:"node_priority"`
+	ElectionInterval int `mapstructure:"election_interval"`
 }
 
 func Load(configPath string) (*Config, error) {
@@ -94,6 +98,9 @@ func Load(configPath string) (*Config, error) {
 	}
 	if cfg.CounterShards <= 0 {
 		cfg.CounterShards = 1
+	}
+	if cfg.ElectionInterval <= 0 {
+		cfg.ElectionInterval = int((2 * time.Second).Seconds())
 	}
 
 	return &cfg, nil
