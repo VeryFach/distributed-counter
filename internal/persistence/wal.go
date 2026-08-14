@@ -17,6 +17,9 @@ type WALEntry struct {
 	Seq  uint64 `json:"seq"`
 	Op   string `json:"op"` // "increment", "decrement", "reset", "merge"
 	Node string `json:"node,omitempty"`
+	// Counter is the counter a mutation targets; empty for merge entries
+	// (which carry all counters in their state maps).
+	Counter string `json:"counter,omitempty"`
 	// Delta is set for increment/decrement entries.
 	Delta int64 `json:"delta,omitempty"`
 	// Positive/Negative/Clock carry the full merged state for merge entries.
@@ -50,6 +53,12 @@ func (w *WALStore) walPath(nodeID string) string {
 // Append writes a single entry to the log. The entry's sequence number is
 // assigned by the store to guarantee ordering across restarts.
 func (w *WALStore) Append(nodeID string, op string, delta int64, positive, negative, clock map[string]int64) error {
+	return w.AppendCounter(nodeID, "", op, delta, positive, negative, clock)
+}
+
+// AppendCounter writes a single entry to the log, tagging the counter the
+// mutation targets.
+func (w *WALStore) AppendCounter(nodeID, counter string, op string, delta int64, positive, negative, clock map[string]int64) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -62,6 +71,7 @@ func (w *WALStore) Append(nodeID string, op string, delta int64, positive, negat
 	entry := WALEntry{
 		Seq:      w.seq,
 		Op:       op,
+		Counter:  counter,
 		Delta:    delta,
 		Positive: positive,
 		Negative: negative,

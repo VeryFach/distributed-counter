@@ -41,6 +41,9 @@ type Config struct {
 	TracingEnabled   bool    `mapstructure:"tracing_enabled"`
 	TraceEndpoint    string  `mapstructure:"trace_endpoint"`
 	TraceSampleRatio float64 `mapstructure:"trace_sample_ratio"`
+
+	// Phase 7: multi-counter support.
+	CounterShards int `mapstructure:"counter_shards"`
 }
 
 func Load(configPath string) (*Config, error) {
@@ -88,6 +91,9 @@ func Load(configPath string) (*Config, error) {
 	}
 	if cfg.TraceSampleRatio <= 0 || cfg.TraceSampleRatio > 1 {
 		cfg.TraceSampleRatio = 1.0
+	}
+	if cfg.CounterShards <= 0 {
+		cfg.CounterShards = 1
 	}
 
 	return &cfg, nil

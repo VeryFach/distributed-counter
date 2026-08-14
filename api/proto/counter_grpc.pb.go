@@ -19,16 +19,18 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	CounterService_Increment_FullMethodName   = "/counter.CounterService/Increment"
-	CounterService_Decrement_FullMethodName   = "/counter.CounterService/Decrement"
-	CounterService_GetValue_FullMethodName    = "/counter.CounterService/GetValue"
-	CounterService_GetNodeInfo_FullMethodName = "/counter.CounterService/GetNodeInfo"
-	CounterService_Reset_FullMethodName       = "/counter.CounterService/Reset"
-	CounterService_SyncState_FullMethodName   = "/counter.CounterService/SyncState"
-	CounterService_JoinCluster_FullMethodName = "/counter.CounterService/JoinCluster"
-	CounterService_Heartbeat_FullMethodName   = "/counter.CounterService/Heartbeat"
-	CounterService_SwimPing_FullMethodName    = "/counter.CounterService/SwimPing"
-	CounterService_SwimPingReq_FullMethodName = "/counter.CounterService/SwimPingReq"
+	CounterService_Increment_FullMethodName     = "/counter.CounterService/Increment"
+	CounterService_Decrement_FullMethodName     = "/counter.CounterService/Decrement"
+	CounterService_GetValue_FullMethodName      = "/counter.CounterService/GetValue"
+	CounterService_GetNodeInfo_FullMethodName   = "/counter.CounterService/GetNodeInfo"
+	CounterService_Reset_FullMethodName         = "/counter.CounterService/Reset"
+	CounterService_CreateCounter_FullMethodName = "/counter.CounterService/CreateCounter"
+	CounterService_ListCounters_FullMethodName  = "/counter.CounterService/ListCounters"
+	CounterService_SyncState_FullMethodName     = "/counter.CounterService/SyncState"
+	CounterService_JoinCluster_FullMethodName   = "/counter.CounterService/JoinCluster"
+	CounterService_Heartbeat_FullMethodName     = "/counter.CounterService/Heartbeat"
+	CounterService_SwimPing_FullMethodName      = "/counter.CounterService/SwimPing"
+	CounterService_SwimPingReq_FullMethodName   = "/counter.CounterService/SwimPingReq"
 )
 
 // CounterServiceClient is the client API for CounterService service.
@@ -43,6 +45,9 @@ type CounterServiceClient interface {
 	GetValue(ctx context.Context, in *GetValueRequest, opts ...grpc.CallOption) (*CounterResponse, error)
 	GetNodeInfo(ctx context.Context, in *GetNodeInfoRequest, opts ...grpc.CallOption) (*NodeInfo, error)
 	Reset(ctx context.Context, in *ResetRequest, opts ...grpc.CallOption) (*CounterResponse, error)
+	// Multi-counter API
+	CreateCounter(ctx context.Context, in *CreateCounterRequest, opts ...grpc.CallOption) (*CounterInfo, error)
+	ListCounters(ctx context.Context, in *ListCountersRequest, opts ...grpc.CallOption) (*ListCountersResponse, error)
 	// Cluster Communication - Bidirectional Streaming
 	SyncState(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[StateUpdate, StateUpdate], error)
 	// Membership Management - Server Streaming
@@ -105,6 +110,26 @@ func (c *counterServiceClient) Reset(ctx context.Context, in *ResetRequest, opts
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CounterResponse)
 	err := c.cc.Invoke(ctx, CounterService_Reset_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *counterServiceClient) CreateCounter(ctx context.Context, in *CreateCounterRequest, opts ...grpc.CallOption) (*CounterInfo, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CounterInfo)
+	err := c.cc.Invoke(ctx, CounterService_CreateCounter_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *counterServiceClient) ListCounters(ctx context.Context, in *ListCountersRequest, opts ...grpc.CallOption) (*ListCountersResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListCountersResponse)
+	err := c.cc.Invoke(ctx, CounterService_ListCounters_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -185,6 +210,9 @@ type CounterServiceServer interface {
 	GetValue(context.Context, *GetValueRequest) (*CounterResponse, error)
 	GetNodeInfo(context.Context, *GetNodeInfoRequest) (*NodeInfo, error)
 	Reset(context.Context, *ResetRequest) (*CounterResponse, error)
+	// Multi-counter API
+	CreateCounter(context.Context, *CreateCounterRequest) (*CounterInfo, error)
+	ListCounters(context.Context, *ListCountersRequest) (*ListCountersResponse, error)
 	// Cluster Communication - Bidirectional Streaming
 	SyncState(grpc.BidiStreamingServer[StateUpdate, StateUpdate]) error
 	// Membership Management - Server Streaming
@@ -217,6 +245,12 @@ func (UnimplementedCounterServiceServer) GetNodeInfo(context.Context, *GetNodeIn
 }
 func (UnimplementedCounterServiceServer) Reset(context.Context, *ResetRequest) (*CounterResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Reset not implemented")
+}
+func (UnimplementedCounterServiceServer) CreateCounter(context.Context, *CreateCounterRequest) (*CounterInfo, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateCounter not implemented")
+}
+func (UnimplementedCounterServiceServer) ListCounters(context.Context, *ListCountersRequest) (*ListCountersResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListCounters not implemented")
 }
 func (UnimplementedCounterServiceServer) SyncState(grpc.BidiStreamingServer[StateUpdate, StateUpdate]) error {
 	return status.Errorf(codes.Unimplemented, "method SyncState not implemented")
@@ -344,6 +378,42 @@ func _CounterService_Reset_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CounterService_CreateCounter_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateCounterRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CounterServiceServer).CreateCounter(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CounterService_CreateCounter_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CounterServiceServer).CreateCounter(ctx, req.(*CreateCounterRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CounterService_ListCounters_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListCountersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CounterServiceServer).ListCounters(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CounterService_ListCounters_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CounterServiceServer).ListCounters(ctx, req.(*ListCountersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _CounterService_SyncState_Handler(srv interface{}, stream grpc.ServerStream) error {
 	return srv.(CounterServiceServer).SyncState(&grpc.GenericServerStream[StateUpdate, StateUpdate]{ServerStream: stream})
 }
@@ -442,6 +512,14 @@ var CounterService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Reset",
 			Handler:    _CounterService_Reset_Handler,
+		},
+		{
+			MethodName: "CreateCounter",
+			Handler:    _CounterService_CreateCounter_Handler,
+		},
+		{
+			MethodName: "ListCounters",
+			Handler:    _CounterService_ListCounters_Handler,
 		},
 		{
 			MethodName: "Heartbeat",

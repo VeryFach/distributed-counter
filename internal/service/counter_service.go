@@ -3,7 +3,9 @@ package service
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"io"
+	"sort"
 	"sync"
 	"time"
 
@@ -21,6 +23,10 @@ import (
 	"github.com/VeryFach/distributed-counter/internal/persistence"
 	"github.com/VeryFach/distributed-counter/pkg/grpcutil"
 )
+
+// defaultCounter is the counter used by clients that do not specify a name,
+// preserving the single-counter API for existing callers.
+const defaultCounter = "default"
 
 type CounterService struct {
 	pb.UnimplementedCounterServiceServer
@@ -40,6 +46,13 @@ type CounterService struct {
 	mu            sync.Mutex
 	lastSyncClock map[string]map[string]int64
 
+	// tags holds the tags registered per counter via CreateCounter.
+	tags map[string][]string
+
+	// counterShards is the number of shards used by Shard() for the
+	// deterministic assignment of counters to shards (default 1).
+	counterShards int
+
 	// apiKey enables auth on the SWIM indirect probe dials.
 	apiKey      string
 	compression bool
@@ -56,6 +69,8 @@ func NewCounterService(nodeID string, port int, logger *zap.Logger) *CounterServ
 		clock:         crdt.NewVectorClock(nodeID),
 		logger:        logger,
 		lastSyncClock: make(map[string]map[string]int64),
+		tags:          make(map[string][]string),
+		counterShards: 1,
 		tracer:        otel.Tracer("counter-service"),
 	}
 }
@@ -64,8 +79,17 @@ func (s *CounterService) getPort() int {
 	return s.port
 }
 
+// normalizeName maps the empty counter name to the default counter.
+func normalizeName(name string) string {
+	if name == "" {
+		return defaultCounter
+	}
+	return name
+}
+
 func (s *CounterService) Increment(ctx context.Context, req *pb.IncrementRequest) (*pb.CounterResponse, error) {
-	s.logger.Debug("Increment called", zap.Int32("delta", req.Delta))
+	name := normalizeName(req.CounterName)
+	s.logger.Debug("Increment called", zap.Int32("delta", req.Delta), zap.String("counter", name))
 
 	delta := int64(req.Delta)
 	if delta == 0 {
@@ -75,27 +99,29 @@ func (s *CounterService) Increment(ctx context.Context, req *pb.IncrementRequest
 	_, span := s.tracer.Start(ctx, "counter.increment",
 		trace.WithAttributes(
 			attribute.String("node.id", s.nodeID),
+			attribute.String("counter.name", name),
 			attribute.Int64("delta", delta),
 		),
 	)
 	defer span.End()
 
-	s.counter.Increment(delta)
-	s.clock.Increment()
+	s.counter.IncrementName(name, delta)
+	s.clock.IncrementName(name)
 
 	metrics.IncIncrementTotal(s.nodeID)
-	metrics.UpdateCounterValue(s.nodeID, s.counter.Value())
+	metrics.UpdateCounterValue(s.nodeID, s.counter.ValueName(name))
 
-	s.walAppend("increment", delta, nil, nil, nil)
+	s.walAppend("increment", name, delta, nil, nil, nil)
 	s.persist()
 
-	span.SetAttributes(attribute.Int64("value", s.counter.Value()))
+	span.SetAttributes(attribute.Int64("value", s.counter.ValueName(name)))
 
-	return s.buildResponse(), nil
+	return s.buildResponse(name), nil
 }
 
 func (s *CounterService) Decrement(ctx context.Context, req *pb.DecrementRequest) (*pb.CounterResponse, error) {
-	s.logger.Debug("Decrement called", zap.Int32("delta", req.Delta))
+	name := normalizeName(req.CounterName)
+	s.logger.Debug("Decrement called", zap.Int32("delta", req.Delta), zap.String("counter", name))
 
 	delta := int64(req.Delta)
 	if delta == 0 {
@@ -105,43 +131,47 @@ func (s *CounterService) Decrement(ctx context.Context, req *pb.DecrementRequest
 	_, span := s.tracer.Start(ctx, "counter.decrement",
 		trace.WithAttributes(
 			attribute.String("node.id", s.nodeID),
+			attribute.String("counter.name", name),
 			attribute.Int64("delta", delta),
 		),
 	)
 	defer span.End()
 
-	s.counter.Decrement(delta)
-	s.clock.Increment()
+	s.counter.DecrementName(name, delta)
+	s.clock.IncrementName(name)
 
 	metrics.IncDecrementTotal(s.nodeID)
-	metrics.UpdateCounterValue(s.nodeID, s.counter.Value())
+	metrics.UpdateCounterValue(s.nodeID, s.counter.ValueName(name))
 
-	s.walAppend("decrement", delta, nil, nil, nil)
+	s.walAppend("decrement", name, delta, nil, nil, nil)
 	s.persist()
 
-	span.SetAttributes(attribute.Int64("value", s.counter.Value()))
+	span.SetAttributes(attribute.Int64("value", s.counter.ValueName(name)))
 
-	return s.buildResponse(), nil
+	return s.buildResponse(name), nil
 }
 
 func (s *CounterService) Reset(ctx context.Context, req *pb.ResetRequest) (*pb.CounterResponse, error) {
-	s.logger.Info("Reset called", zap.String("node_id", s.nodeID))
+	name := normalizeName(req.CounterName)
+	s.logger.Info("Reset called", zap.String("node_id", s.nodeID), zap.String("counter", name))
 
-	prev := s.counter.Value()
+	prev := s.counter.ValueName(name)
 	_, span := s.tracer.Start(ctx, "counter.reset",
 		trace.WithAttributes(
 			attribute.String("node.id", s.nodeID),
+			attribute.String("counter.name", name),
 			attribute.Int64("previous_value", prev),
 		),
 	)
 	defer span.End()
 
-	s.counter.Reset()
-	s.clock.Reset()
+	s.counter.ResetName(name)
+	s.clock.ResetName(name)
 
-	// Clear per-sender sync baselines: the vector clock is now zero, so any
-	// retained baseline would make delta gossip skip everything and leave
-	// this node unable to exchange state until a slow reconciliation.
+	// Clear per-sender sync baselines: the vector clock for this counter is
+	// now zero, so any retained baseline would make delta gossip skip
+	// everything and leave this node unable to exchange state until a slow
+	// reconciliation.
 	s.mu.Lock()
 	s.lastSyncClock = make(map[string]map[string]int64)
 	s.mu.Unlock()
@@ -150,23 +180,127 @@ func (s *CounterService) Reset(ctx context.Context, req *pb.ResetRequest) (*pb.C
 		s.onReset()
 	}
 
-	metrics.UpdateCounterValue(s.nodeID, s.counter.Value())
+	metrics.UpdateCounterValue(s.nodeID, s.counter.ValueName(name))
 
-	s.walAppend("reset", 0, nil, nil, nil)
+	s.walAppend("reset", name, 0, nil, nil, nil)
 	s.persist()
 
-	return s.buildResponse(), nil
+	return s.buildResponse(name), nil
 }
 
 func (s *CounterService) GetValue(ctx context.Context, req *pb.GetValueRequest) (*pb.CounterResponse, error) {
-	return s.buildResponse(), nil
+	return s.buildResponse(normalizeName(req.CounterName)), nil
+}
+
+// CreateCounter registers a counter's tags (counters are created lazily on
+// first increment; this RPC only attaches metadata) and returns its info.
+func (s *CounterService) CreateCounter(ctx context.Context, req *pb.CreateCounterRequest) (*pb.CounterInfo, error) {
+	name := normalizeName(req.Name)
+
+	if len(req.Tags) > 0 {
+		s.mu.Lock()
+		s.tags[name] = append([]string(nil), req.Tags...)
+		s.mu.Unlock()
+	}
+
+	s.logger.Info("CreateCounter",
+		zap.String("node_id", s.nodeID),
+		zap.String("counter", name),
+		zap.Strings("tags", req.Tags),
+	)
+	return s.buildCounterInfo(name), nil
+}
+
+// ListCounters enumerates every known counter, optionally filtered to those
+// carrying a given tag. The default counter is always included when nothing
+// else exists, so single-counter clients see a usable list.
+func (s *CounterService) ListCounters(ctx context.Context, req *pb.ListCountersRequest) (*pb.ListCountersResponse, error) {
+	names := make(map[string]bool)
+	for _, n := range s.counter.Names() {
+		names[n] = true
+	}
+
+	s.mu.Lock()
+	for n := range s.tags {
+		names[n] = true
+	}
+	tags := make(map[string][]string, len(s.tags))
+	for k, v := range s.tags {
+		tags[k] = append([]string(nil), v...)
+	}
+	s.mu.Unlock()
+
+	if len(names) == 0 {
+		names[defaultCounter] = true
+	}
+
+	res := make([]*pb.CounterInfo, 0, len(names))
+	for n := range names {
+		if req.Tag != "" && !containsTag(tags[n], req.Tag) {
+			continue
+		}
+		res = append(res, s.buildCounterInfo(n))
+	}
+
+	sort.Slice(res, func(i, j int) bool { return res[i].Name < res[j].Name })
+	return &pb.ListCountersResponse{Counters: res}, nil
+}
+
+func containsTag(tags []string, tag string) bool {
+	for _, t := range tags {
+		if t == tag {
+			return true
+		}
+	}
+	return false
+}
+
+// buildCounterInfo assembles a CounterInfo for the given counter, including
+// its deterministic shard assignment.
+func (s *CounterService) buildCounterInfo(name string) *pb.CounterInfo {
+	s.mu.Lock()
+	tags := append([]string(nil), s.tags[name]...)
+	s.mu.Unlock()
+
+	return &pb.CounterInfo{
+		Name:         name,
+		CurrentValue: s.counter.ValueName(name),
+		Shard:        s.Shard(name),
+		Tags:         tags,
+	}
+}
+
+// Shard assigns a counter to a shard deterministically via FNV-1a, so every
+// node agrees on where a counter lives. With one shard every counter maps to
+// shard 0 (no partitioning).
+func (s *CounterService) Shard(name string) uint32 {
+	s.mu.Lock()
+	n := s.counterShards
+	s.mu.Unlock()
+
+	if n <= 1 {
+		return 0
+	}
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(name))
+	return h.Sum32() % uint32(n)
+}
+
+// SetShardCount configures the number of logical shards for Shard().
+func (s *CounterService) SetShardCount(n int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if n < 1 {
+		n = 1
+	}
+	s.counterShards = n
 }
 
 func (s *CounterService) GetNodeInfo(ctx context.Context, req *pb.GetNodeInfoRequest) (*pb.NodeInfo, error) {
 	return &pb.NodeInfo{
 		NodeId:       s.nodeID,
 		Address:      fmt.Sprintf("localhost:%d", s.getPort()),
-		CounterValue: s.counter.Value(),
+		CounterValue: s.counter.ValueName(defaultCounter),
 		Version:      s.clock.String(),
 		IsLeader:     false,
 		LastSeen:     time.Now().Unix(),
@@ -305,7 +439,7 @@ func (s *CounterService) pingTarget(ctx context.Context, address string) bool {
 	return resp.Alive
 }
 
-func (s *CounterService) buildResponse() *pb.CounterResponse {
+func (s *CounterService) buildResponse(name string) *pb.CounterResponse {
 	nodes := []*pb.NodeInfo{}
 	if s.cluster != nil {
 		for _, member := range s.cluster.GetMembers() {
@@ -320,7 +454,8 @@ func (s *CounterService) buildResponse() *pb.CounterResponse {
 
 	return &pb.CounterResponse{
 		NodeId:       s.nodeID,
-		CurrentValue: s.counter.Value(),
+		CounterName:  name,
+		CurrentValue: s.counter.ValueName(name),
 		Version:      s.clock.String(),
 		LastUpdated:  time.Now().Unix(),
 		ClusterNodes: nodes,
@@ -379,7 +514,7 @@ func (s *CounterService) SyncState(
 		)
 		metrics.IncGossipReceived(s.nodeID)
 
-		s.walAppend("merge", 0, update.PositiveState, update.NegativeState, update.VectorClock)
+		s.walAppend("merge", "", 0, update.PositiveState, update.NegativeState, update.VectorClock)
 		s.persist()
 
 		// Balas dengan delta (atau full state) supaya peer bisa merge.
@@ -463,10 +598,18 @@ func (s *CounterService) persist() {
 		return
 	}
 
+	s.mu.Lock()
+	tags := make(map[string][]string, len(s.tags))
+	for k, v := range s.tags {
+		tags[k] = append([]string(nil), v...)
+	}
+	s.mu.Unlock()
+
 	state := persistence.CounterState{
 		Positive: s.counter.Positive(),
 		Negative: s.counter.Negative(),
 		Clock:    s.clock.State(),
+		Tags:     tags,
 	}
 
 	if err := s.store.Save(s.nodeID, state); err != nil {
@@ -488,10 +631,18 @@ func (s *CounterService) Restore(state *persistence.CounterState) {
 	s.counter.Merge(remote)
 	s.clock.MergeMap(state.Clock)
 
-	metrics.UpdateCounterValue(s.nodeID, s.counter.Value())
+	if len(state.Tags) > 0 {
+		s.mu.Lock()
+		for k, v := range state.Tags {
+			s.tags[k] = append([]string(nil), v...)
+		}
+		s.mu.Unlock()
+	}
+
+	metrics.UpdateCounterValue(s.nodeID, s.counter.ValueName(defaultCounter))
 
 	s.logger.Info("Restored counter state from persistence",
-		zap.Int64("value", s.counter.Value()))
+		zap.Int64("value", s.counter.ValueName(defaultCounter)))
 }
 
 // SetStore injects the persistence store used to survive restarts.
@@ -519,12 +670,12 @@ func (s *CounterService) SetWAL(wal *persistence.WALStore) {
 }
 
 // walAppend records a mutation in the WAL before it is considered durable.
-func (s *CounterService) walAppend(op string, delta int64, positive, negative, clock map[string]int64) {
+func (s *CounterService) walAppend(op, counter string, delta int64, positive, negative, clock map[string]int64) {
 	if s.wal == nil {
 		return
 	}
 
-	if err := s.wal.Append(s.nodeID, op, delta, positive, negative, clock); err != nil {
+	if err := s.wal.AppendCounter(s.nodeID, counter, op, delta, positive, negative, clock); err != nil {
 		s.logger.Error("Failed to append WAL entry", zap.String("op", op), zap.Error(err))
 	}
 }
@@ -544,14 +695,14 @@ func (s *CounterService) ReplayWAL() error {
 	for _, entry := range entries {
 		switch entry.Op {
 		case "increment":
-			s.counter.Increment(entry.Delta)
-			s.clock.Increment()
+			s.counter.IncrementName(entry.Counter, entry.Delta)
+			s.clock.IncrementName(entry.Counter)
 		case "decrement":
-			s.counter.Decrement(entry.Delta)
-			s.clock.Increment()
+			s.counter.DecrementName(entry.Counter, entry.Delta)
+			s.clock.IncrementName(entry.Counter)
 		case "reset":
-			s.counter.Reset()
-			s.clock.Reset()
+			s.counter.ResetName(entry.Counter)
+			s.clock.ResetName(entry.Counter)
 		case "merge":
 			remote := crdt.NewPNCounter("")
 			remote.SetPositive(entry.Positive)
@@ -562,10 +713,10 @@ func (s *CounterService) ReplayWAL() error {
 	}
 
 	if len(entries) > 0 {
-		metrics.UpdateCounterValue(s.nodeID, s.counter.Value())
+		metrics.UpdateCounterValue(s.nodeID, s.counter.ValueName(defaultCounter))
 		s.logger.Info("Replayed WAL entries",
 			zap.Int("count", len(entries)),
-			zap.Int64("value", s.counter.Value()))
+			zap.Int64("value", s.counter.ValueName(defaultCounter)))
 	}
 
 	return nil
@@ -578,10 +729,18 @@ func (s *CounterService) Snapshot() {
 		return
 	}
 
+	s.mu.Lock()
+	tags := make(map[string][]string, len(s.tags))
+	for k, v := range s.tags {
+		tags[k] = append([]string(nil), v...)
+	}
+	s.mu.Unlock()
+
 	state := persistence.CounterState{
 		Positive: s.counter.Positive(),
 		Negative: s.counter.Negative(),
 		Clock:    s.clock.State(),
+		Tags:     tags,
 	}
 
 	if err := s.store.Save(s.nodeID, state); err != nil {
@@ -595,7 +754,7 @@ func (s *CounterService) Snapshot() {
 		}
 	}
 
-	s.logger.Debug("Snapshot taken", zap.Int64("value", s.counter.Value()))
+	s.logger.Debug("Snapshot taken", zap.Int64("value", s.counter.ValueName(defaultCounter)))
 }
 
 func (s *CounterService) Counter() *crdt.PNCounter {

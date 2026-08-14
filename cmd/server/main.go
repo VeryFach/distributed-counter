@@ -100,6 +100,7 @@ func main() {
 
 	// Create service
 	counterSvc := service.NewCounterService(cfg.NodeID, cfg.GRPCPort, zlog)
+	counterSvc.SetShardCount(cfg.CounterShards)
 
 	// Optional Redis persistence so the counter survives node restarts.
 	var store persistence.Store

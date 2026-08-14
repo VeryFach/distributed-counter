@@ -2,6 +2,8 @@ package crdt
 
 import (
 	"encoding/json"
+	"sort"
+	"strings"
 	"sync"
 )
 
@@ -34,6 +36,57 @@ func (v *VectorClock) Increment() {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.clock[v.nodeID]++
+}
+
+// IncrementName ticks the clock for a named counter. Keys use the same
+// naming scheme as PNCounter so causal order is tracked per counter.
+func (v *VectorClock) IncrementName(name string) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.clock[counterKey(name, v.nodeID)]++
+}
+
+// ResetName clears the clock entries belonging to a single named counter.
+func (v *VectorClock) ResetName(name string) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	if name == "" || name == "default" {
+		for k := range v.clock {
+			if !strings.Contains(k, ":") || strings.HasPrefix(k, "default:") {
+				delete(v.clock, k)
+			}
+		}
+		return
+	}
+
+	prefix := name + ":"
+	for k := range v.clock {
+		if strings.HasPrefix(k, prefix) {
+			delete(v.clock, k)
+		}
+	}
+}
+
+// Names returns the sorted list of named counters tracked by the clock,
+// excluding the default counter.
+func (v *VectorClock) Names() []string {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+
+	seen := make(map[string]bool)
+	for k := range v.clock {
+		if i := strings.IndexByte(k, ':'); i > 0 {
+			seen[k[:i]] = true
+		}
+	}
+
+	names := make([]string, 0, len(seen))
+	for n := range seen {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // Reset clears all clock entries.

@@ -12,6 +12,10 @@ service CounterService {
     rpc GetValue(GetValueRequest) returns (CounterResponse);
     rpc GetNodeInfo(GetNodeInfoRequest) returns (NodeInfo);
     rpc Reset(ResetRequest) returns (CounterResponse);
+
+    // Multi-counter API
+    rpc CreateCounter(CreateCounterRequest) returns (CounterInfo);
+    rpc ListCounters(ListCountersRequest) returns (ListCountersResponse);
     
     // Cluster Communication - Bidirectional Streaming
     rpc SyncState(stream StateUpdate) returns (stream StateUpdate);
@@ -38,20 +42,24 @@ message IncrementRequest {
     int32 delta = 1;  // how much to increment (default: 1)
     string client_id = 2;
     int64 timestamp = 3;
+    string counter_name = 4;  // which counter to update (default: "default")
 }
 
 message DecrementRequest {
     int32 delta = 1;
     string client_id = 2;
     int64 timestamp = 3;
+    string counter_name = 4;  // which counter to update (default: "default")
 }
 
 message GetValueRequest {
     string node_id = 1;  // optional: get value from specific node
+    string counter_name = 2;  // which counter to read (default: "default")
 }
 
 message ResetRequest {
     string node_id = 1;  // optional: which node's counter to reset
+    string counter_name = 2;  // which counter to reset (default: "default")
 }
 
 message GetNodeInfoRequest {}
@@ -62,6 +70,28 @@ message CounterResponse {
     string version = 3;          // Vector Clock representation
     int64 last_updated = 4;      // Unix timestamp
     repeated NodeInfo cluster_nodes = 5;
+    string counter_name = 6;     // which counter this response is for
+}
+
+// Multi-counter messages
+message CreateCounterRequest {
+    string name = 1;             // counter name (e.g. "post_1"); empty = "default"
+    repeated string tags = 2;    // optional tags, e.g. "likes", "views"
+}
+
+message CounterInfo {
+    string name = 1;
+    int64 current_value = 2;
+    uint32 shard = 3;            // deterministic shard assignment
+    repeated string tags = 4;
+}
+
+message ListCountersRequest {
+    string tag = 1;              // optional: only counters carrying this tag
+}
+
+message ListCountersResponse {
+    repeated CounterInfo counters = 1;
 }
 
 message NodeInfo {

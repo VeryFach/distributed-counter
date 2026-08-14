@@ -1,11 +1,13 @@
 package persistence
 
 // CounterState is a snapshot of the CRDT state that must survive restarts:
-// the per-replica positive/negative maps and the vector clock.
+// the per-replica positive/negative maps and the vector clock, plus the
+// registered counter tags.
 type CounterState struct {
 	Positive map[string]int64 `json:"positive"`
 	Negative map[string]int64 `json:"negative"`
 	Clock    map[string]int64 `json:"clock"`
+	Tags     map[string][]string `json:"tags,omitempty"`
 }
 
 // Store persists and restores counter state for a node.
