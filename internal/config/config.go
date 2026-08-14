@@ -36,6 +36,11 @@ type Config struct {
 	APIKey              string `mapstructure:"api_key"`
 	RateLimitPerSecond  int    `mapstructure:"rate_limit_per_second"`
 	CompressionEnabled  bool   `mapstructure:"compression_enabled"`
+
+	// Phase 6: distributed tracing (OpenTelemetry -> Jaeger).
+	TracingEnabled   bool    `mapstructure:"tracing_enabled"`
+	TraceEndpoint    string  `mapstructure:"trace_endpoint"`
+	TraceSampleRatio float64 `mapstructure:"trace_sample_ratio"`
 }
 
 func Load(configPath string) (*Config, error) {
@@ -77,6 +82,12 @@ func Load(configPath string) (*Config, error) {
 	}
 	if cfg.WALDir == "" {
 		cfg.WALDir = "data"
+	}
+	if cfg.TraceEndpoint == "" {
+		cfg.TraceEndpoint = "localhost:4317"
+	}
+	if cfg.TraceSampleRatio <= 0 || cfg.TraceSampleRatio > 1 {
+		cfg.TraceSampleRatio = 1.0
 	}
 
 	return &cfg, nil

@@ -23,6 +23,7 @@ import (
 	"github.com/VeryFach/distributed-counter/internal/persistence"
 	"github.com/VeryFach/distributed-counter/internal/server"
 	"github.com/VeryFach/distributed-counter/internal/service"
+	"github.com/VeryFach/distributed-counter/internal/tracing"
 	"github.com/VeryFach/distributed-counter/pkg/grpcutil"
 	"github.com/VeryFach/distributed-counter/pkg/logger"
 )
@@ -57,6 +58,26 @@ func main() {
 	}
 
 	defer zlog.Sync()
+
+	// Initialize distributed tracing (OpenTelemetry -> Jaeger). Safe to call
+	// even when disabled: instrumentation then uses the global noop tracer.
+	shutdownTracing, err := tracing.Init(tracing.Config{
+		Enabled:     cfg.TracingEnabled,
+		Endpoint:    cfg.TraceEndpoint,
+		ServiceName: "distributed-counter",
+		NodeID:      cfg.NodeID,
+		SampleRatio: cfg.TraceSampleRatio,
+	}, zlog)
+	if err != nil {
+		zlog.Warn("Failed to init tracing, running without it", zap.Error(err))
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if flushErr := shutdownTracing(shutdownCtx); flushErr != nil {
+			zlog.Warn("Failed to flush traces", zap.Error(flushErr))
+		}
+	}()
 
 	zlog.Info(
 		"Starting Distributed Counter",

@@ -13,6 +13,7 @@ import (
 	pb "github.com/VeryFach/distributed-counter/api/proto"
 	"github.com/VeryFach/distributed-counter/internal/gossip"
 	"github.com/VeryFach/distributed-counter/internal/service"
+	"github.com/VeryFach/distributed-counter/internal/tracing"
 )
 
 type GRPCServer struct {
@@ -39,6 +40,8 @@ func NewGRPCServer(port int, counterSvc *service.CounterService, gossipEngine *g
 	opts := []grpc.ServerOption{
 		grpc.ChainUnaryInterceptor(unaryInterceptors...),
 		grpc.ChainStreamInterceptor(streamInterceptors...),
+		// Distributed tracing: spans every RPC (no-op when tracing disabled).
+		grpc.StatsHandler(tracing.ServerHandler()),
 		// Large state updates (10 MB)
 		grpc.MaxRecvMsgSize(10 * 1024 * 1024),
 		grpc.MaxSendMsgSize(10 * 1024 * 1024),

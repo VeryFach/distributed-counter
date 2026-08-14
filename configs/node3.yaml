@@ -20,6 +20,10 @@ auth_enabled: false
 api_key: ""
 rate_limit_per_second: 0
 compression_enabled: true
+# Distributed tracing (OpenTelemetry -> Jaeger)
+tracing_enabled: true
+trace_endpoint: jaeger:4317
+trace_sample_ratio: 1.0
 seed_nodes:
   - node-a:50051
   - node-b:50052

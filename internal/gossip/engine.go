@@ -6,15 +6,19 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+	"go.uber.org/zap"
+	"google.golang.org/grpc"
+
 	counter "github.com/VeryFach/distributed-counter/api/proto"
 	"github.com/VeryFach/distributed-counter/internal/cluster"
 	"github.com/VeryFach/distributed-counter/internal/crdt"
 	"github.com/VeryFach/distributed-counter/internal/metrics"
 	"github.com/VeryFach/distributed-counter/internal/persistence"
 	"github.com/VeryFach/distributed-counter/pkg/grpcutil"
-	"go.uber.org/zap"
-
-	"google.golang.org/grpc"
 )
 
 type GossipEngine struct {
@@ -64,6 +68,10 @@ type GossipEngine struct {
 	mu     sync.RWMutex
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	// tracer emits a span per gossip round to a peer so the gossip loop is
+	// visible in the trace backend.
+	tracer trace.Tracer
 }
 
 func NewGossipEngine(
@@ -99,6 +107,7 @@ func NewGossipEngine(
 		circuitCooldown:  30 * time.Second,
 		ctx:              ctx,
 		cancel:           cancel,
+		tracer:           otel.Tracer("gossip"),
 	}
 }
 
@@ -203,8 +212,18 @@ func (g *GossipEngine) gossip() {
 
 // gossipToPeer sends a delta (or periodic full) state update to a single peer
 func (g *GossipEngine) gossipToPeer(peer *cluster.Member) {
+	ctx, span := g.tracer.Start(g.ctx, "gossip.sync",
+		trace.WithAttributes(
+			attribute.String("node.id", g.nodeID),
+			attribute.String("peer.id", peer.ID),
+			attribute.String("peer.address", peer.Address),
+		),
+	)
+	defer span.End()
+
 	breaker := g.breaker(peer.Address)
 	if !breaker.Allow() {
+		span.SetAttributes(attribute.Bool("breaker.open", true))
 		return
 	}
 
@@ -277,7 +296,7 @@ func (g *GossipEngine) gossipToPeer(peer *cluster.Member) {
 	// the connection is evicted so the next attempt re-dials the peer's
 	// (possibly new) address. Otherwise a cached stream that died (e.g. peer
 	// restart) would fail forever and the peer would never receive gossip.
-	syncCtx, syncCancel := context.WithTimeout(g.ctx, g.interval)
+	syncCtx, syncCancel := context.WithTimeout(ctx, g.interval)
 	defer syncCancel()
 
 	stream, err := g.getOrCreateStream(peer.Address, syncCtx)
@@ -318,6 +337,7 @@ func (g *GossipEngine) gossipToPeer(peer *cluster.Member) {
 
 	if response == nil {
 		breaker.Failure()
+		span.SetStatus(codes.Error, "gossip sync failed")
 		g.logger.Error("Failed to sync state with peer",
 			zap.String("peer", peer.Address),
 			zap.Error(err),
@@ -326,6 +346,7 @@ func (g *GossipEngine) gossipToPeer(peer *cluster.Member) {
 	}
 
 	breaker.Success()
+	span.SetAttributes(attribute.Bool("synced", true))
 	metrics.IncGossipSent(g.nodeID)
 
 	// Merge received state

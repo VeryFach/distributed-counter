@@ -7,6 +7,9 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/peer"
@@ -40,6 +43,9 @@ type CounterService struct {
 	// apiKey enables auth on the SWIM indirect probe dials.
 	apiKey      string
 	compression bool
+
+	// tracer emits business-level spans for counter operations.
+	tracer trace.Tracer
 }
 
 func NewCounterService(nodeID string, port int, logger *zap.Logger) *CounterService {
@@ -50,6 +56,7 @@ func NewCounterService(nodeID string, port int, logger *zap.Logger) *CounterServ
 		clock:         crdt.NewVectorClock(nodeID),
 		logger:        logger,
 		lastSyncClock: make(map[string]map[string]int64),
+		tracer:        otel.Tracer("counter-service"),
 	}
 }
 
@@ -65,6 +72,14 @@ func (s *CounterService) Increment(ctx context.Context, req *pb.IncrementRequest
 		delta = 1
 	}
 
+	_, span := s.tracer.Start(ctx, "counter.increment",
+		trace.WithAttributes(
+			attribute.String("node.id", s.nodeID),
+			attribute.Int64("delta", delta),
+		),
+	)
+	defer span.End()
+
 	s.counter.Increment(delta)
 	s.clock.Increment()
 
@@ -73,6 +88,8 @@ func (s *CounterService) Increment(ctx context.Context, req *pb.IncrementRequest
 
 	s.walAppend("increment", delta, nil, nil, nil)
 	s.persist()
+
+	span.SetAttributes(attribute.Int64("value", s.counter.Value()))
 
 	return s.buildResponse(), nil
 }
@@ -85,6 +102,14 @@ func (s *CounterService) Decrement(ctx context.Context, req *pb.DecrementRequest
 		delta = 1
 	}
 
+	_, span := s.tracer.Start(ctx, "counter.decrement",
+		trace.WithAttributes(
+			attribute.String("node.id", s.nodeID),
+			attribute.Int64("delta", delta),
+		),
+	)
+	defer span.End()
+
 	s.counter.Decrement(delta)
 	s.clock.Increment()
 
@@ -94,11 +119,22 @@ func (s *CounterService) Decrement(ctx context.Context, req *pb.DecrementRequest
 	s.walAppend("decrement", delta, nil, nil, nil)
 	s.persist()
 
+	span.SetAttributes(attribute.Int64("value", s.counter.Value()))
+
 	return s.buildResponse(), nil
 }
 
 func (s *CounterService) Reset(ctx context.Context, req *pb.ResetRequest) (*pb.CounterResponse, error) {
 	s.logger.Info("Reset called", zap.String("node_id", s.nodeID))
+
+	prev := s.counter.Value()
+	_, span := s.tracer.Start(ctx, "counter.reset",
+		trace.WithAttributes(
+			attribute.String("node.id", s.nodeID),
+			attribute.Int64("previous_value", prev),
+		),
+	)
+	defer span.End()
 
 	s.counter.Reset()
 	s.clock.Reset()

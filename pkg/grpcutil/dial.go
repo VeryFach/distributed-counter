@@ -6,6 +6,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/encoding/gzip"
+
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 )
 
 // apiKeyCredentials attaches the API key as a Bearer token to every RPC so
@@ -27,6 +29,9 @@ func (c apiKeyCredentials) RequireTransportSecurity() bool { return false }
 func DialOptions(apiKey string, compression bool) []grpc.DialOption {
 	opts := []grpc.DialOption{
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		// Distributed tracing: creates a span per RPC and propagates the
+		// trace context to the peer (no-op when tracing disabled).
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 	}
 	if apiKey != "" {
 		opts = append(opts, grpc.WithPerRPCCredentials(apiKeyCredentials{key: apiKey}))
