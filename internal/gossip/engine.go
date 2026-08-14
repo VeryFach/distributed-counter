@@ -128,6 +128,31 @@ func (g *GossipEngine) SetWAL(wal *persistence.WALStore) {
 	g.wal = wal
 }
 
+// SetCircuitBreakerConfig tunes the per-peer circuit breaker that skips
+// gossiping to unreachable peers. Exported so test harnesses can speed up
+// recovery after a partitioned node rejoins the cluster.
+func (g *GossipEngine) SetCircuitBreakerConfig(failures int, cooldown time.Duration) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if failures > 0 {
+		g.circuitFailures = failures
+	}
+	g.circuitCooldown = cooldown
+}
+
+// SetFullSyncInterval overrides how many gossip rounds pass before a full
+// state reconciliation is sent as a safety net. Exported for tests that want
+// deterministic full-sync behavior.
+func (g *GossipEngine) SetFullSyncInterval(rounds int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if rounds > 0 {
+		g.fullSyncInterval = rounds
+	}
+}
+
 // SetClientConfig configures how the engine dials peers: apiKey enables
 // API key auth on the connection, compression enables gRPC gzip for the
 // (potentially large) state payloads.
