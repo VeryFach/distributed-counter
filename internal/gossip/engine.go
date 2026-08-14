@@ -332,14 +332,24 @@ func (g *GossipEngine) gossipToPeer(peer *cluster.Member) {
 
 	var response *counter.StateUpdate
 	for attempt := 0; attempt < g.maxRetries; attempt++ {
-		if err := stream.Send(update); err != nil {
-			g.evictConn(peer.Address)
-			if attempt < g.maxRetries-1 {
-				time.Sleep(g.backoff(attempt))
-				stream, err = g.getOrCreateStream(peer.Address, syncCtx)
-				if err != nil {
+		// A failed attempt may have evicted the connection, leaving stream
+		// nil. Recreate it before sending instead of dereferencing nil.
+		if stream == nil {
+			stream, err = g.getOrCreateStream(peer.Address, syncCtx)
+			if err != nil {
+				if attempt < g.maxRetries-1 {
+					time.Sleep(g.backoff(attempt))
 					continue
 				}
+				break
+			}
+		}
+
+		if err := stream.Send(update); err != nil {
+			g.evictConn(peer.Address)
+			stream = nil
+			if attempt < g.maxRetries-1 {
+				time.Sleep(g.backoff(attempt))
 			}
 			continue
 		}
@@ -351,12 +361,9 @@ func (g *GossipEngine) gossipToPeer(peer *cluster.Member) {
 		}
 
 		g.evictConn(peer.Address)
+		stream = nil
 		if attempt < g.maxRetries-1 {
 			time.Sleep(g.backoff(attempt))
-			stream, err = g.getOrCreateStream(peer.Address, syncCtx)
-			if err != nil {
-				continue
-			}
 		}
 	}
 

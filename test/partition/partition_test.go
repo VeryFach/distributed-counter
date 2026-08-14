@@ -21,7 +21,7 @@ func TestPartitionThenHeal(t *testing.T) {
 	defer cancel()
 
 	c := harness.Start(t, 3, harness.Options{
-		GossipInterval: 200 * time.Millisecond,
+		GossipInterval:  200 * time.Millisecond,
 		CircuitCooldown: 500 * time.Millisecond,
 	})
 
@@ -63,7 +63,7 @@ func TestConcurrentUpdatesAcrossPartition(t *testing.T) {
 	defer cancel()
 
 	c := harness.Start(t, 3, harness.Options{
-		GossipInterval: 200 * time.Millisecond,
+		GossipInterval:  200 * time.Millisecond,
 		CircuitCooldown: 500 * time.Millisecond,
 	})
 
@@ -95,7 +95,7 @@ func TestSequentialPartitions(t *testing.T) {
 	defer cancel()
 
 	c := harness.Start(t, 3, harness.Options{
-		GossipInterval: 200 * time.Millisecond,
+		GossipInterval:  200 * time.Millisecond,
 		CircuitCooldown: 500 * time.Millisecond,
 	})
 

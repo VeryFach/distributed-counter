@@ -1,4 +1,4 @@
-.PHONY: proto build run test clean docker-up docker-down test-integration
+.PHONY: proto build run test clean docker-up docker-down test-integration test-chaos test-chaos-docker
 
 proto:
 	@echo "Generating protobuf code..."
@@ -19,6 +19,14 @@ test:
 test-integration:
 	@echo "Running integration tests..."
 	"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File ./scripts/test-integration.ps1
+
+test-chaos:
+	@echo "Running in-process chaos tests..."
+	go test -count=1 -timeout 120s ./test/chaos/...
+
+test-chaos-docker:
+	@echo "Running docker chaos tests..."
+	"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File ./scripts/chaos-test.ps1
 
 docker-up:
 	@echo "Starting Docker Compose..."

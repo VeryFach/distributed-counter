@@ -177,7 +177,7 @@ func (c *Cluster) StartNode(i int) {
 		return
 	}
 
-	lis, err := net.Listen("tcp", node.Addr)
+	lis, err := rebindListen(node.Addr, 50)
 	if err != nil {
 		panic(fmt.Sprintf("harness: failed to re-listen on %s: %v", node.Addr, err))
 	}
@@ -307,4 +307,19 @@ func (c *Cluster) Close() {
 		}
 		node.mu.Unlock()
 	}
+}
+
+// rebindListen re-listens on addr, retrying because the OS may briefly hold
+// the port after GracefulStop before it is fully released.
+func rebindListen(addr string, attempts int) (net.Listener, error) {
+	var err error
+	for i := 0; i < attempts; i++ {
+		var lis net.Listener
+		lis, err = net.Listen("tcp", addr)
+		if err == nil {
+			return lis, nil
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return nil, err
 }
