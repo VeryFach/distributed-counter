@@ -42,6 +42,13 @@ Sistem menggunakan:
 | gRPC Compression         | Kompresi payload dengan gzip untuk menghemat bandwidth                         |
 | Prometheus Metrics       | Monitoring counter, gossip, recovery, auth, dan rate limit                     |
 | Distributed Tracing      | OpenTelemetry (OTLP) -> Jaeger, trace menyebar lintas node                     |
+| Multi Counter            | Banyak counter independen dalam satu cluster, dinamespasi per `name`           |
+| Tagged Counters          | Filter dan kategorisasi counter via tags                                        |
+| Counter Sharding         | Distribusi counter ke shard (FNV-1a hash) untuk penyebaran beban               |
+| Leader Election          | Bully algorithm memilih node ber-priority tertinggi sebagai leader             |
+| Network Partition Test   | Verifikasi eventual consistency saat cluster terbelah lalu pulih                |
+| Chaos Testing            | Simulasi restart container / node di dalam proses dan via Docker               |
+| Benchmark Suite          | Ukur throughput, convergence time, dan memori untuk 3/5/10/20 node            |
 | Health Check             | gRPC health service + server reflection                                        |
 
 ---
@@ -224,7 +231,8 @@ distributed-counter/
 ├── internal/
 │   ├── cluster/        # Membership + SWIM failure detector
 │   ├── config/         # Viper-based configuration
-│   ├── crdt/           # PNCounter + Vector Clock
+│   ├── crdt/           # PNCounter + Vector Clock (multi-counter aware)
+│   ├── election/       # Bully leader election
 │   ├── gossip/         # Gossip engine (delta/full sync, circuit breaker)
 │   ├── metrics/        # Prometheus metrics
 │   ├── persistence/    # Redis store + Write-Ahead Log
@@ -238,8 +246,14 @@ distributed-counter/
 ├── deployments/        # Dockerfile, compose, prometheus, grafana
 ├── scripts/
 └── test/
+    ├── benchmark/      # Throughput, convergence, memory benchmarks
+    ├── chaos/          # In-process + Docker chaos tests
+    ├── e2e/
+    ├── election/       # Bully leader election tests
+    ├── harness/        # In-process cluster harness
     ├── integration/
-    └── e2e/
+    ├── multicounter/   # Multi counter / tags / sharding tests
+    └── partition/      # Network partition tests
 ```
 
 ---
@@ -368,6 +382,13 @@ trace_sample_ratio: 1.0       # 0.0 - 1.0
 seed_nodes:
   - node-b:50052
   - node-c:50053
+
+# Multi counter & sharding
+counter_shards: 3             # jumlah shard untuk distribusi counter
+
+# Leader election (bully)
+node_priority: 1              # makin besar, makin berhak jadi leader
+election_interval: 2          # detik, interval evaluasi/re-announce leader
 ```
 
 ### Node 1 (`configs/node1.yaml`)
@@ -782,14 +803,89 @@ This project implements:
 * Vector Clock
 * Gossip Protocol
 * SWIM Failure Detection
+* Bully Leader Election
 * Eventual Consistency
 
 Properties:
 
-* No leader election required
-* No central coordinator required
+* Counter value bersifat conflict-free (CRDT), tanpa koordinator pusat
 * Partition tolerant
 * Conflict-free merge semantics
+* Leader election (bully) digunakan untuk koordinasi cluster (snapshot coordinator, cluster management) tanpa memengaruhi konsistensi counter itu sendiri
+
+---
+
+# Multi Counter & Sharding
+
+Setiap operasi counter dapat memakai nama counter (`counter_name`). Counter kosong berarti counter `default` (kompatibel dengan perilaku versi sebelumnya). Contoh:
+
+```text
+IncrementRequest{ name: "post_1", delta: 5 }
+IncrementRequest{ name: "post_2", delta: 2 }
+```
+
+Counter terdistribusi ke shard berdasarkan hash nama (FNV-1a) modulo jumlah shard (`counter_shards`). Counter dapat diberi tags dan difilter saat `ListCounters`:
+
+```text
+CreateCounterRequest{ name: "post_1", tags: ["likes", "trending"] }
+ListCountersRequest{ tag: "likes" }
+```
+
+Semua counter berbagi satu PNCounter + Vector Clock internal (key dinamespasi `name:replica`), sehingga gossip dan delta protocol tetap bekerja tanpa perubahan.
+
+---
+
+# Leader Election (Bully)
+
+Cluster memilih leader melalui **Bully Algorithm**: node dengan `node_priority` tertinggi yang hidup akan terpilih. Detil alur:
+
+```mermaid
+sequenceDiagram
+    participant Node0 as Node0 (prio 5)
+    participant Node1 as Node1 (prio 4)
+
+    Node1->>Node0: Election(priority=4)
+    Node0-->>Node1: OK (reply)
+    Note over Node0: Node0 lebih tinggi → mulai election sendiri
+    Node0->>Node1: Coordinator(priority=5, term=1)
+    Node1-->>Node0: Ack
+    Note over Node1: Node1 mengikuti Node0 sebagai leader
+    Note over Node0: Leader re-announce tiap election_interval
+```
+
+Aturan penting:
+
+* **Priority dominan**: leader ber-priority lebih tinggi tidak dapat digeser oleh node ber-priority lebih rendah, meskipun node itu menaikkan term (mencegah leader salah akibat transient probe failure).
+* **Failover**: ketika leader mati (tidak announce melebihi timeout), node tertinggi berikutnya melakukan election, menaikkan term, dan diikuti semua node.
+* **Stability**: leader yang sehat terus re-announce supaya followers tidak memicu election baru.
+
+Leader dapat dilihat pada respons `GetNodeInfo` (`leader_id`, `is_leader`) dan di metadata anggota.
+
+---
+
+# Testing
+
+Semua test in-process tidak memerlukan Docker:
+
+```bash
+make test            # unit + partition + chaos + multicounter + election
+make test-chaos      # chaos in-process (5 node, load + failure driver)
+make bench           # benchmark throughput / convergence / memory
+```
+
+Test Docker-based (membutuhkan compose cluster berjalan):
+
+```bash
+make test-integration
+make test-e2e
+make test-chaos-docker
+```
+
+* **Network Partition Test** (`test/partition`): membagi cluster dan memverifikasi eventual consistency setelah partition pulih.
+* **Chaos Testing** (`test/chaos`): restart/pause node dalam proses dan via Docker (build tag `chaosdocker`), memverifikasi konvergensi `>= expected` (at-least-once).
+* **Benchmark** (`test/benchmark`): throughput increment (3/5/10/20 node), convergence time untuk batch 1000 increment, dan memori per node.
+* **Multi Counter** (`test/multicounter`): independensi counter, reset per-counter, tags, dan sharding.
+* **Leader Election** (`test/election`): pemilihan leader, failover saat leader mati, dan stabilitas tanpa kegagalan.
 
 ---
 
