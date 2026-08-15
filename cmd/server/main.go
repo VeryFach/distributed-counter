@@ -19,6 +19,7 @@ import (
 	"github.com/VeryFach/distributed-counter/internal/cluster"
 	"github.com/VeryFach/distributed-counter/internal/config"
 	"github.com/VeryFach/distributed-counter/internal/crdt"
+	"github.com/VeryFach/distributed-counter/internal/dashboard"
 	"github.com/VeryFach/distributed-counter/internal/election"
 	"github.com/VeryFach/distributed-counter/internal/gateway"
 	"github.com/VeryFach/distributed-counter/internal/gossip"
@@ -211,7 +212,15 @@ func main() {
 	gw := gateway.New(counterSvc, gateway.Options{
 		Port:         cfg.HTTPPort,
 		AdminService: adminSvc,
-		Logger:       zlog,
+		Dashboard: dashboard.New(dashboard.Options{
+			NodeID:      cfg.NodeID,
+			Membership:  membership,
+			Service:     counterSvc,
+			APIKey:      cfg.APIKey,
+			Compression: cfg.CompressionEnabled,
+			Logger:      zlog,
+		}),
+		Logger: zlog,
 	})
 	gwErrCh := make(chan error, 1)
 	go func() {

@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Distributed Counter — Cluster Dashboard</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --panel: #1a1d27;
+      --border: #2a2f3d;
+      --text: #e6e9f0;
+      --muted: #8b93a7;
+      --accent: #4f8cff;
+      --green: #3ddc84;
+      --yellow: #f5c542;
+      --red: #ff5f6d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+    }
+    header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+    .pill {
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+    .pill.green { color: var(--green); border-color: var(--green); }
+    .grid {
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      gap: 16px;
+      padding: 16px 24px;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+    }
+    .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 12px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-weight: 500; }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .badge.alive { background: rgba(61,220,132,.15); color: var(--green); }
+    .badge.suspect { background: rgba(245,197,66,.15); color: var(--yellow); }
+    .badge.dead, .badge.left { background: rgba(255,95,109,.15); color: var(--red); }
+    .badge.leader { background: rgba(79,140,255,.2); color: var(--accent); }
+    #graph { width: 100%; height: 480px; }
+    .stat-row { display: flex; gap: 24px; margin-bottom: 12px; }
+    .stat { flex: 1; }
+    .stat .value { font-size: 22px; font-weight: 700; }
+    .stat .label { font-size: 12px; color: var(--muted); }
+    .footer { padding: 8px 24px 24px; color: var(--muted); font-size: 12px; }
+    a { color: var(--accent); }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/cytoscape@3.30.2/dist/cytoscape.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>Distributed Counter — Cluster Dashboard</h1>
+    <div>
+      <span id="leader" class="pill">leader: unknown</span>
+      <span id="size" class="pill">nodes: 0</span>
+      <span id="updated" class="pill">—</span>
+    </div>
+  </header>
+
+  <div class="grid">
+    <div>
+      <div class="panel">
+        <h2>Cluster Stats</h2>
+        <div class="stat-row">
+          <div class="stat"><div id="statLeaders" class="value">0</div><div class="label">Leaders</div></div>
+          <div class="stat"><div id="statAlive" class="value">0</div><div class="label">Alive nodes</div></div>
+        </div>
+        <div class="stat-row">
+          <div class="stat"><div id="statCounters" class="value">0</div><div class="label">Counters</div></div>
+          <div class="stat"><div id="statGossip" class="value">0</div><div class="label">Gossip sent</div></div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:16px">
+        <h2>Counter Values</h2>
+        <table id="counterTable">
+          <thead><tr><th>Counter</th><th>Shard</th><th>Value</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <h2>Cluster Topology</h2>
+        <div id="graph"></div>
+      </div>
+
+      <div class="panel" style="margin-top:16px">
+        <h2>Nodes</h2>
+        <table id="nodeTable">
+          <thead>
+            <tr><th>Node</th><th>Address</th><th>Status</th><th>Role</th><th>Priority</th><th>Value</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    Auto-refresh setiap 3 detik. Data diambil dari <code>/api/cluster</code> (agregat semua node).
+  </div>
+
+  <script>
+    let cy = null;
+
+    function initGraph() {
+      cy = cytoscape({
+        container: document.getElementById('graph'),
+        elements: [],
+        style: [
+          {
+            selector: 'node',
+            style: {
+              'label': 'data(label)',
+              'text-valign': 'bottom',
+              'color': '#e6e9f0',
+              'background-color': 'data(color)',
+              'width': 42,
+              'height': 42,
+              'font-size': 11
+            }
+          },
+          {
+            selector: 'node.leader',
+            style: {
+              'border-width': 3,
+              'border-color': '#4f8cff'
+            }
+          },
+          {
+            selector: 'edge',
+            style: {
+              'width': 1.5,
+              'line-color': '#2a2f3d',
+              'curve-style': 'bezier'
+            }
+          }
+        ],
+        layout: { name: 'circle' }
+      });
+    }
+
+    function statusColor(status, active) {
+      if (!active) return '#ff5f6d';
+      switch (status.toLowerCase()) {
+        case 'alive': return '#3ddc84';
+        case 'suspect': return '#f5c542';
+        default: return '#ff5f6d';
+      }
+    }
+
+    function render(data) {
+      const leader = data.nodes.find(n => n.is_leader);
+      document.getElementById('leader').textContent = leader
+        ? 'leader: ' + leader.node_id : 'leader: none';
+      document.getElementById('leader').className = 'pill' + (leader ? ' green' : '');
+      document.getElementById('size').textContent = 'nodes: ' + data.nodes.length;
+      document.getElementById('updated').textContent = 'updated: ' + new Date().toLocaleTimeString();
+
+      const alive = data.nodes.filter(n => n.is_active).length;
+      const leaderCount = data.nodes.filter(n => n.is_leader).length;
+      document.getElementById('statLeaders').textContent = leaderCount;
+      document.getElementById('statAlive').textContent = alive;
+      document.getElementById('statCounters').textContent = data.counters.length;
+      document.getElementById('statGossip').textContent = data.gossip.sent_total;
+
+      const counterBody = document.querySelector('#counterTable tbody');
+      counterBody.innerHTML = '';
+      for (const c of data.counters) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${esc(c.name)}</td><td>${c.shard}</td><td>${c.value}</td>`;
+        counterBody.appendChild(tr);
+      }
+
+      const nodeBody = document.querySelector('#nodeTable tbody');
+      nodeBody.innerHTML = '';
+      for (const n of data.nodes) {
+        const tr = document.createElement('tr');
+        const status = n.is_active ? n.status : 'Dead';
+        const role = n.is_leader ? '<span class="badge leader">leader</span>' : (n.leader_id === n.node_id ? '<span class="badge leader">leader</span>' : 'member');
+        tr.innerHTML = `
+          <td>${esc(n.node_id)}${n.node_id === (data.self && data.self.node_id) ? ' (self)' : ''}</td>
+          <td>${esc(n.address)}</td>
+          <td><span class="badge ${status.toLowerCase()}">${status}</span></td>
+          <td>${role}</td>
+          <td>${n.priority}</td>
+          <td>${n.counter_value}</td>`;
+        nodeBody.appendChild(tr);
+      }
+
+      // Topology
+      const elements = [];
+      for (const n of data.nodes) {
+        elements.push({
+          data: { id: n.node_id, label: n.node_id, color: statusColor(n.status, n.is_active) },
+          classes: n.is_leader ? 'leader' : ''
+        });
+      }
+      for (let i = 0; i < data.nodes.length; i++) {
+        for (let j = i + 1; j < data.nodes.length; j++) {
+          elements.push({ data: { id: data.nodes[i].node_id + '-' + data.nodes[j].node_id, source: data.nodes[i].node_id, target: data.nodes[j].node_id } });
+        }
+      }
+      if (cy) {
+        cy.elements().remove();
+        cy.add(elements);
+        cy.layout({ name: 'circle' }).run();
+      }
+    }
+
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
+    async function refresh() {
+      try {
+        const res = await fetch('/api/cluster');
+        const data = await res.json();
+        render(data);
+      } catch (e) {
+        document.getElementById('updated').textContent = 'error: ' + e.message;
+      }
+    }
+
+    window.addEventListener('load', () => {
+      initGraph();
+      refresh();
+      setInterval(refresh, 3000);
+    });
+  </script>
+</body>
+</html>

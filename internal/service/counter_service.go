@@ -217,8 +217,8 @@ func (s *CounterService) CreateCounter(ctx context.Context, req *pb.CreateCounte
 }
 
 // ListCounters enumerates every known counter, optionally filtered to those
-// carrying a given tag. The default counter is always included when nothing
-// else exists, so single-counter clients see a usable list.
+// carrying a given tag. The default counter is included whenever it holds
+// state (or tags), so single-counter clients always see it.
 func (s *CounterService) ListCounters(ctx context.Context, req *pb.ListCountersRequest) (*pb.ListCountersResponse, error) {
 	names := make(map[string]bool)
 	for _, n := range s.counter.Names() {
@@ -235,6 +235,11 @@ func (s *CounterService) ListCounters(ctx context.Context, req *pb.ListCountersR
 	}
 	s.mu.Unlock()
 
+	// The default counter has no "name:node" keys, so it is absent from
+	// Names(). Add it whenever it holds state so clients can always read it.
+	if s.counter.ValueName(defaultCounter) != 0 || len(s.tags[defaultCounter]) > 0 {
+		names[defaultCounter] = true
+	}
 	if len(names) == 0 {
 		names[defaultCounter] = true
 	}

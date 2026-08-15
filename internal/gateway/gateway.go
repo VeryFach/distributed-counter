@@ -15,6 +15,7 @@ import (
 
 	pb "github.com/VeryFach/distributed-counter/api/proto"
 	"github.com/VeryFach/distributed-counter/internal/admin"
+	"github.com/VeryFach/distributed-counter/internal/dashboard"
 )
 
 // Server serves the HTTP/JSON gateway plus the web dashboard on a single
@@ -33,6 +34,8 @@ type Options struct {
 	Port int
 	// AdminService is registered under /v1/admin/*.
 	AdminService *admin.AdminService
+	// Dashboard is the web UI; when nil the dashboard is not served.
+	Dashboard *dashboard.Dashboard
 	// Logger for gateway lifecycle messages.
 	Logger *zap.Logger
 }
@@ -58,6 +61,14 @@ func New(counterSvc pb.CounterServiceServer, opts Options) *Server {
 		if err := pb.RegisterAdminServiceHandlerServer(ctx, mux, opts.AdminService); err != nil {
 			logger.Warn("Failed to register admin gateway", zap.Error(err))
 		}
+	}
+	if opts.Dashboard != nil {
+		mux.HandlePath(http.MethodGet, "/api/cluster", func(w http.ResponseWriter, r *http.Request, _ map[string]string) {
+			opts.Dashboard.Cluster(w, r)
+		})
+		mux.HandlePath(http.MethodGet, "/", func(w http.ResponseWriter, r *http.Request, _ map[string]string) {
+			opts.Dashboard.Index(w, r)
+		})
 	}
 
 	return &Server{
