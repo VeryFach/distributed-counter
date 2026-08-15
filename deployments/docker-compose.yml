@@ -12,6 +12,7 @@ services:
     ports:
       - "50051:50051"
       - "8080:8080" # Prometheus metrics
+      - "8081:8081" # REST gateway + dashboard
     networks:
       - counter-net
 
@@ -28,6 +29,7 @@ services:
     ports:
       - "50052:50052"
       - "8081:8081"
+      - "8082:8082" # REST gateway + dashboard
     networks:
       - counter-net
 
@@ -44,6 +46,7 @@ services:
     ports:
       - "50053:50053"
       - "8082:8082"
+      - "8083:8083" # REST gateway + dashboard
     networks:
       - counter-net
 

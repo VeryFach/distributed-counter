@@ -235,6 +235,43 @@ func (g *GossipEngine) gossip() {
 	}
 }
 
+// ForceSync immediately gossips to every active peer, bypassing the random
+// peer selection of the periodic loop. It returns the number of peers
+// contacted (rounds launched). Used by the Admin API to trigger a manual
+// state reconciliation.
+func (g *GossipEngine) ForceSync() int {
+	peers := g.cluster.GetAlivePeers()
+	if len(peers) == 0 {
+		return 0
+	}
+
+	contacted := 0
+	for _, peer := range peers {
+		g.mu.Lock()
+		if g.syncing[peer.Address] {
+			g.mu.Unlock()
+			continue
+		}
+		g.syncing[peer.Address] = true
+		g.mu.Unlock()
+		contacted++
+
+		go func(p *cluster.Member) {
+			defer func() {
+				g.mu.Lock()
+				delete(g.syncing, p.Address)
+				g.mu.Unlock()
+			}()
+			g.gossipToPeer(p)
+		}(peer)
+	}
+
+	g.logger.Info("Force sync triggered",
+		zap.Int("peers", contacted),
+	)
+	return contacted
+}
+
 // gossipToPeer sends a delta (or periodic full) state update to a single peer
 func (g *GossipEngine) gossipToPeer(peer *cluster.Member) {
 	ctx, span := g.tracer.Start(g.ctx, "gossip.sync",

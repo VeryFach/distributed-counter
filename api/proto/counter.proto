@@ -4,18 +4,52 @@ package counter;
 
 option go_package = "github.com/VeryFach/distributed-counter/api/proto;counter";
 
+import "google/api/annotations.proto";
+
 // Main Counter Service
 service CounterService {
     // Client API - Unary Calls
-    rpc Increment(IncrementRequest) returns (CounterResponse);
-    rpc Decrement(DecrementRequest) returns (CounterResponse);
-    rpc GetValue(GetValueRequest) returns (CounterResponse);
-    rpc GetNodeInfo(GetNodeInfoRequest) returns (NodeInfo);
-    rpc Reset(ResetRequest) returns (CounterResponse);
+    rpc Increment(IncrementRequest) returns (CounterResponse) {
+        option (google.api.http) = {
+            post: "/v1/counter/increment"
+            body: "*"
+        };
+    }
+    rpc Decrement(DecrementRequest) returns (CounterResponse) {
+        option (google.api.http) = {
+            post: "/v1/counter/decrement"
+            body: "*"
+        };
+    }
+    rpc GetValue(GetValueRequest) returns (CounterResponse) {
+        option (google.api.http) = {
+            get: "/v1/counter/value"
+        };
+    }
+    rpc GetNodeInfo(GetNodeInfoRequest) returns (NodeInfo) {
+        option (google.api.http) = {
+            get: "/v1/node/info"
+        };
+    }
+    rpc Reset(ResetRequest) returns (CounterResponse) {
+        option (google.api.http) = {
+            post: "/v1/counter/reset"
+            body: "*"
+        };
+    }
 
     // Multi-counter API
-    rpc CreateCounter(CreateCounterRequest) returns (CounterInfo);
-    rpc ListCounters(ListCountersRequest) returns (ListCountersResponse);
+    rpc CreateCounter(CreateCounterRequest) returns (CounterInfo) {
+        option (google.api.http) = {
+            post: "/v1/counter"
+            body: "*"
+        };
+    }
+    rpc ListCounters(ListCountersRequest) returns (ListCountersResponse) {
+        option (google.api.http) = {
+            get: "/v1/counters"
+        };
+    }
     
     // Cluster Communication - Bidirectional Streaming
     rpc SyncState(stream StateUpdate) returns (stream StateUpdate);
@@ -31,6 +65,53 @@ service CounterService {
     // Leader Election (Bully Algorithm)
     rpc Election(ElectionRequest) returns (ElectionResponse);
     rpc Coordinator(CoordinatorRequest) returns (CoordinatorResponse);
+}
+
+// AdminService exposes cluster-management operations over both gRPC and
+// HTTP (via grpc-gateway), used by the Admin API and the web dashboard.
+service AdminService {
+    rpc AddNode(AddNodeRequest) returns (AdminResponse) {
+        option (google.api.http) = {
+            post: "/v1/admin/add-node"
+            body: "*"
+        };
+    }
+    rpc RemoveNode(RemoveNodeRequest) returns (AdminResponse) {
+        option (google.api.http) = {
+            post: "/v1/admin/remove-node"
+            body: "*"
+        };
+    }
+    rpc ForceSync(ForceSyncRequest) returns (ForceSyncResponse) {
+        option (google.api.http) = {
+            post: "/v1/admin/force-sync"
+            body: "*"
+        };
+    }
+}
+
+// Admin API request & response messages.
+message AddNodeRequest {
+    string node_id = 1;
+    string address = 2;
+}
+
+message RemoveNodeRequest {
+    string node_id = 1;
+}
+
+message ForceSyncRequest {}
+
+message AdminResponse {
+    bool success = 1;
+    string message = 2;
+    repeated Member members = 3;
+}
+
+message ForceSyncResponse {
+    bool success = 1;
+    string message = 2;
+    int32 peers_contacted = 3;
 }
 
 // Member lifecycle states used by the gossip membership protocol.

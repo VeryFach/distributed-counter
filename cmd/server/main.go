@@ -15,10 +15,12 @@ import (
 	"google.golang.org/grpc"
 
 	pb "github.com/VeryFach/distributed-counter/api/proto"
+	"github.com/VeryFach/distributed-counter/internal/admin"
 	"github.com/VeryFach/distributed-counter/internal/cluster"
 	"github.com/VeryFach/distributed-counter/internal/config"
 	"github.com/VeryFach/distributed-counter/internal/crdt"
 	"github.com/VeryFach/distributed-counter/internal/election"
+	"github.com/VeryFach/distributed-counter/internal/gateway"
 	"github.com/VeryFach/distributed-counter/internal/gossip"
 	"github.com/VeryFach/distributed-counter/internal/metrics"
 	"github.com/VeryFach/distributed-counter/internal/persistence"
@@ -185,6 +187,12 @@ func main() {
 	counterSvc.SetClientConfig(cfg.APIKey, cfg.CompressionEnabled)
 	counterSvc.SetOnReset(gossipEngine.InvalidateBaselines)
 
+	// Admin service: cluster management (add/remove node, force sync),
+	// exposed over gRPC and HTTP/JSON via grpc-gateway.
+	adminSvc := admin.New(cfg.NodeID, zlog)
+	adminSvc.SetCluster(membership)
+	adminSvc.SetGossip(gossipEngine)
+
 	// Create gRPC server with auth + rate limiting middleware
 	grpcServer := server.NewGRPCServer(cfg.GRPCPort, counterSvc, gossipEngine, server.MiddlewareConfig{
 		NodeID:             cfg.NodeID,
@@ -192,10 +200,22 @@ func main() {
 		AuthEnabled:        cfg.AuthEnabled,
 		APIKey:             cfg.APIKey,
 		RateLimitPerSecond: cfg.RateLimitPerSecond,
-	})
+	}, adminSvc)
 	serverErrCh := make(chan error, 1)
 	go func() {
 		serverErrCh <- grpcServer.Start()
+	}()
+
+	// REST gateway: serves the counter + admin APIs over HTTP/JSON and hosts
+	// the web dashboard on the configured HTTP port.
+	gw := gateway.New(counterSvc, gateway.Options{
+		Port:         cfg.HTTPPort,
+		AdminService: adminSvc,
+		Logger:       zlog,
+	})
+	gwErrCh := make(chan error, 1)
+	go func() {
+		gwErrCh <- gw.Start()
 	}()
 
 	if err := waitForLocalServer(localAddress, clientDial); err != nil {
@@ -258,6 +278,7 @@ func main() {
 		runtimeCancel()
 		swim.Stop()
 		gossipEngine.Stop()
+		gw.Stop()
 		grpcServer.Stop()
 		done <- true
 	}()

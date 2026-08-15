@@ -2,7 +2,7 @@ node_id: node-c
 grpc_port: 50053
 advertise_address: node-c:50053
 metrics_port: 8082
-http_port: 8082
+http_port: 8083
 gossip_interval: 5
 heartbeat_interval: 3
 heartbeat_timeout: 10

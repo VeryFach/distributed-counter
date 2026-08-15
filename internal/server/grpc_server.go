@@ -22,9 +22,10 @@ type GRPCServer struct {
 	counterSvc   *service.CounterService
 	gossipEngine *gossip.GossipEngine
 	healthSvc    *health.Server
+	adminSvc     pb.AdminServiceServer
 }
 
-func NewGRPCServer(port int, counterSvc *service.CounterService, gossipEngine *gossip.GossipEngine, cfg MiddlewareConfig) *GRPCServer {
+func NewGRPCServer(port int, counterSvc *service.CounterService, gossipEngine *gossip.GossipEngine, cfg MiddlewareConfig, extra ...pb.AdminServiceServer) *GRPCServer {
 	auth := NewAuthInterceptor(cfg)
 	rateLimit := NewRateLimitInterceptor(cfg)
 
@@ -47,17 +48,26 @@ func NewGRPCServer(port int, counterSvc *service.CounterService, gossipEngine *g
 		grpc.MaxSendMsgSize(10 * 1024 * 1024),
 	}
 
+	var adminSvc pb.AdminServiceServer
+	if len(extra) > 0 {
+		adminSvc = extra[0]
+	}
+
 	return &GRPCServer{
 		server:       grpc.NewServer(opts...),
 		port:         port,
 		counterSvc:   counterSvc,
 		gossipEngine: gossipEngine,
 		healthSvc:    health.NewServer(),
+		adminSvc:     adminSvc,
 	}
 }
 
 func (s *GRPCServer) Start() error {
 	pb.RegisterCounterServiceServer(s.server, s.counterSvc)
+	if s.adminSvc != nil {
+		pb.RegisterAdminServiceServer(s.server, s.adminSvc)
+	}
 
 	s.healthSvc.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
 	grpc_health_v1.RegisterHealthServer(s.server, s.healthSvc)
