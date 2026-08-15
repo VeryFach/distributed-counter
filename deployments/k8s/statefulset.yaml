@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: counter
+  namespace: distributed-counter
+  labels:
+    app: distributed-counter
+spec:
+  serviceName: counter
+  replicas: 3
+  selector:
+    matchLabels:
+      app: distributed-counter
+  podManagementPolicy: Parallel
+  template:
+    metadata:
+      labels:
+        app: distributed-counter
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: counter
+          image: distributed-counter:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - -config
+            - /etc/counter/$(POD_NAME).yaml
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: COUNTER_LOG_LEVEL
+              value: info
+          ports:
+            - name: grpc
+              containerPort: 50051
+            - name: metrics
+              containerPort: 8080
+            - name: http
+              containerPort: 8081
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/counter
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: config
+          configMap:
+            name: counter-config
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 1Gi

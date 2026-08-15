@@ -1,0 +1,104 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: counter-config
+  namespace: distributed-counter
+data:
+  counter-0.yaml: |
+    node_id: counter-0
+    grpc_port: 50051
+    advertise_address: counter-0.counter.distributed-counter.svc.cluster.local:50051
+    metrics_port: 8080
+    http_port: 8081
+    gossip_interval: 5
+    heartbeat_interval: 3
+    heartbeat_timeout: 10
+    persistence_enabled: true
+    redis_addr: redis.distributed-counter.svc.cluster.local:6379
+    redis_password: ""
+    redis_db: 0
+    wal_enabled: true
+    wal_dir: /data
+    snapshot_interval_seconds: 30
+    swim_interval: 1
+    swim_probe_timeout: 2
+    swim_suspect_to_dead: 3
+    auth_enabled: false
+    api_key: ""
+    rate_limit_per_second: 0
+    compression_enabled: true
+    tracing_enabled: false
+    trace_endpoint: jaeger.distributed-counter.svc.cluster.local:4317
+    trace_sample_ratio: 1.0
+    counter_shards: 3
+    node_priority: 1
+    election_interval: 2
+    seed_nodes:
+      - counter-1.counter.distributed-counter.svc.cluster.local:50051
+      - counter-2.counter.distributed-counter.svc.cluster.local:50051
+
+  counter-1.yaml: |
+    node_id: counter-1
+    grpc_port: 50051
+    advertise_address: counter-1.counter.distributed-counter.svc.cluster.local:50051
+    metrics_port: 8080
+    http_port: 8081
+    gossip_interval: 5
+    heartbeat_interval: 3
+    heartbeat_timeout: 10
+    persistence_enabled: true
+    redis_addr: redis.distributed-counter.svc.cluster.local:6379
+    redis_password: ""
+    redis_db: 0
+    wal_enabled: true
+    wal_dir: /data
+    snapshot_interval_seconds: 30
+    swim_interval: 1
+    swim_probe_timeout: 2
+    swim_suspect_to_dead: 3
+    auth_enabled: false
+    api_key: ""
+    rate_limit_per_second: 0
+    compression_enabled: true
+    tracing_enabled: false
+    trace_endpoint: jaeger.distributed-counter.svc.cluster.local:4317
+    trace_sample_ratio: 1.0
+    counter_shards: 3
+    node_priority: 2
+    election_interval: 2
+    seed_nodes:
+      - counter-0.counter.distributed-counter.svc.cluster.local:50051
+      - counter-2.counter.distributed-counter.svc.cluster.local:50051
+
+  counter-2.yaml: |
+    node_id: counter-2
+    grpc_port: 50051
+    advertise_address: counter-2.counter.distributed-counter.svc.cluster.local:50051
+    metrics_port: 8080
+    http_port: 8081
+    gossip_interval: 5
+    heartbeat_interval: 3
+    heartbeat_timeout: 10
+    persistence_enabled: true
+    redis_addr: redis.distributed-counter.svc.cluster.local:6379
+    redis_password: ""
+    redis_db: 0
+    wal_enabled: true
+    wal_dir: /data
+    snapshot_interval_seconds: 30
+    swim_interval: 1
+    swim_probe_timeout: 2
+    swim_suspect_to_dead: 3
+    auth_enabled: false
+    api_key: ""
+    rate_limit_per_second: 0
+    compression_enabled: true
+    tracing_enabled: false
+    trace_endpoint: jaeger.distributed-counter.svc.cluster.local:4317
+    trace_sample_ratio: 1.0
+    counter_shards: 3
+    node_priority: 3
+    election_interval: 2
+    seed_nodes:
+      - counter-0.counter.distributed-counter.svc.cluster.local:50051
+      - counter-1.counter.distributed-counter.svc.cluster.local:50051
