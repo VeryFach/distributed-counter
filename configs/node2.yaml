@@ -2,10 +2,31 @@ node_id: node-b
 grpc_port: 50052
 advertise_address: node-b:50052
 metrics_port: 8081
-http_port: 8081
+http_port: 8082
 gossip_interval: 5
 heartbeat_interval: 3
 heartbeat_timeout: 10
+persistence_enabled: true
+redis_addr: redis:6379
+redis_password: ""
+redis_db: 0
+wal_enabled: true
+wal_dir: data
+snapshot_interval_seconds: 30
+swim_interval: 1
+swim_probe_timeout: 2
+swim_suspect_to_dead: 3
+auth_enabled: false
+api_key: ""
+rate_limit_per_second: 0
+compression_enabled: true
+# Distributed tracing (OpenTelemetry -> Jaeger)
+tracing_enabled: true
+trace_endpoint: jaeger:4317
+trace_sample_ratio: 1.0
+counter_shards: 3
+node_priority: 2
+election_interval: 2
 seed_nodes:
   - node-a:50051
   - node-c:50053

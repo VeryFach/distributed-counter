@@ -7,9 +7,12 @@ services:
       - ./counter-server
       - -config
       - configs/node1.yaml
+    environment:
+      - COUNTER_LOG_LEVEL=debug
     ports:
       - "50051:50051"
-      - "8080:8080" # Prometheus metrics
+      - "9080:8080" # Prometheus metrics (host 9080)
+      - "8081:8081" # REST gateway + dashboard
     networks:
       - counter-net
 
@@ -21,9 +24,12 @@ services:
       - ./counter-server
       - -config
       - configs/node2.yaml
+    environment:
+      - COUNTER_LOG_LEVEL=debug
     ports:
       - "50052:50052"
-      - "8081:8081"
+      - "9081:8081" # Prometheus metrics (host 9081)
+      - "8082:8082" # REST gateway + dashboard
     networks:
       - counter-net
 
@@ -35,9 +41,12 @@ services:
       - ./counter-server
       - -config
       - configs/node3.yaml
+    environment:
+      - COUNTER_LOG_LEVEL=debug
     ports:
       - "50053:50053"
-      - "8082:8082"
+      - "9082:8082" # Prometheus metrics (host 9082)
+      - "8083:8083" # REST gateway + dashboard
     networks:
       - counter-net
 
@@ -45,6 +54,8 @@ services:
     image: redis:7.0-alpine
     ports:
       - "6379:6379"
+    volumes:
+      - redis-data:/data
     networks:
       - counter-net
 
@@ -71,6 +82,20 @@ services:
     networks:
       - counter-net
 
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    ports:
+      - "16686:16686" # Jaeger UI
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    networks:
+      - counter-net
+
 networks:
   counter-net:
     driver: bridge
+
+volumes:
+  redis-data:

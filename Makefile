@@ -1,8 +1,8 @@
-.PHONY: proto build run test clean docker-up docker-down test-integration
+.PHONY: proto build run test test-integration test-e2e test-chaos test-chaos-docker bench clean docker-up docker-down docker-logs init
 
 proto:
 	@echo "Generating protobuf code..."
-	./scripts/generate-proto.sh
+	protoc -I api/proto -I third_party --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative --grpc-gateway_out=. --grpc-gateway_opt=paths=source_relative api/proto/counter.proto
 
 build:
 	@echo "Building application..."
@@ -13,12 +13,28 @@ run:
 	go run ./cmd/server -config configs/config.yaml
 
 test:
-	@echo "Running tests..."
-	go test -v ./...
+	@echo "Running in-process tests (no Docker required)..."
+	go test -count=1 -timeout 180s ./internal/... ./test/partition/... ./test/chaos/... ./test/multicounter/... ./test/election/...
 
 test-integration:
 	@echo "Running integration tests..."
 	"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File ./scripts/test-integration.ps1
+
+test-e2e:
+	@echo "Running e2e tests..."
+	go test -count=1 -timeout 120s ./test/e2e/...
+
+test-chaos:
+	@echo "Running in-process chaos tests..."
+	go test -count=1 -timeout 120s ./test/chaos/...
+
+test-chaos-docker:
+	@echo "Running docker chaos tests..."
+	"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File ./scripts/chaos-test.ps1
+
+bench:
+	@echo "Running benchmarks..."
+	go test -bench=. -benchmem -benchtime=2s ./test/benchmark/...
 
 docker-up:
 	@echo "Starting Docker Compose..."

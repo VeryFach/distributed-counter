@@ -257,6 +257,65 @@ func TestClusterConsistency(t *testing.T) {
 	)
 }
 
+func TestClusterReset(t *testing.T) {
+	ctx, cancel :=
+		context.WithTimeout(
+			context.Background(),
+			30*time.Second,
+		)
+	defer cancel()
+
+	t.Log("Waiting for nodes to be ready...")
+
+	_, clients :=
+		createClients(
+			t,
+			ctx,
+		)
+
+	// Reset every node so the test is independent of previous state.
+	for _, client := range clients {
+		_, err := client.Reset(
+			ctx,
+			&counter.ResetRequest{},
+		)
+		require.NoError(t, err)
+	}
+
+	// Each node must read zero immediately after its own reset.
+	for i, client := range clients {
+		resp, err := client.GetValue(
+			ctx,
+			&counter.GetValueRequest{},
+		)
+		require.NoError(t, err)
+
+		assert.Equal(
+			t,
+			int64(0),
+			resp.CurrentValue,
+			"node %d was not reset",
+			i,
+		)
+	}
+
+	// The cluster can now be reused with a known baseline.
+	_, err := clients[0].Increment(
+		ctx,
+		&counter.IncrementRequest{
+			Delta: 5,
+		},
+	)
+	require.NoError(t, err)
+
+	waitUntilConverged(
+		t,
+		ctx,
+		clients,
+		5,
+	)
+}
+
 func TestConcurrentUpdates(t *testing.T) {
 	ctx, cancel :=
 		context.WithTimeout(

@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: counter
+  namespace: distributed-counter
+  labels:
+    app: distributed-counter
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: false
+  selector:
+    app: distributed-counter
+  ports:
+    - name: grpc
+      port: 50051
+      targetPort: grpc
+    - name: http
+      port: 8081
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: counter-lb
+  namespace: distributed-counter
+  labels:
+    app: distributed-counter
+spec:
+  type: LoadBalancer
+  selector:
+    app: distributed-counter
+  ports:
+    - name: grpc
+      port: 50051
+      targetPort: grpc
+    - name: http
+      port: 8081
+      targetPort: http

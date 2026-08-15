@@ -2,10 +2,35 @@ node_id: node-a
 grpc_port: 50051
 advertise_address: localhost:50051
 metrics_port: 8080
-http_port: 8080
+http_port: 8081
 gossip_interval: 5
 heartbeat_interval: 3
 heartbeat_timeout: 10
+persistence_enabled: true
+redis_addr: localhost:6379
+redis_password: ""
+redis_db: 0
+# Write-Ahead Log + periodic snapshots
+wal_enabled: true
+wal_dir: data
+snapshot_interval_seconds: 30
+# SWIM failure detection
+swim_interval: 1
+swim_probe_timeout: 2
+swim_suspect_to_dead: 3
+# Production features
+auth_enabled: false
+api_key: ""
+rate_limit_per_second: 0
+compression_enabled: true
+# Distributed tracing (OpenTelemetry -> Jaeger)
+tracing_enabled: true
+trace_endpoint: localhost:4317
+trace_sample_ratio: 1.0
+# Multi-counter sharding (deterministic shard assignment per counter name)
+counter_shards: 3
+node_priority: 1
+election_interval: 2
 seed_nodes:
   - node-b:50052
   - node-c:50053
