@@ -517,7 +517,7 @@ services:
       - configs/node1.yaml
     ports:
       - "50051:50051"
-      - "8080:8080" # Prometheus metrics
+      - "9080:8080" # Prometheus metrics
       - "8081:8081" # REST gateway + dashboard
     networks:
       - counter-net
@@ -532,7 +532,7 @@ services:
       - configs/node2.yaml
     ports:
       - "50052:50052"
-      - "8081:8081"
+      - "9081:8081" # Prometheus metrics
       - "8082:8082" # REST gateway + dashboard
     networks:
       - counter-net
@@ -547,7 +547,7 @@ services:
       - configs/node3.yaml
     ports:
       - "50053:50053"
-      - "8082:8082"
+      - "9082:8082" # Prometheus metrics
       - "8083:8083" # REST gateway + dashboard
     networks:
       - counter-net
@@ -629,7 +629,7 @@ docker compose -f deployments/docker-compose.yml down
 
 * Prometheus UI: `http://localhost:9090`
 * Grafana UI: `http://localhost:3000` (login `admin` / `admin`)
-* Metrics endpoint tiap node: `http://localhost:808X/metrics`
+* Metrics endpoint tiap node: `http://localhost:908X/metrics` (host 9080/9081/9082 untuk node-a/b/c; prometheus men-scrape via nama service internal `node-a:8080` dst.)
 
 ## Distributed Tracing (Jaeger)
 
