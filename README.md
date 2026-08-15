@@ -46,6 +46,10 @@ Sistem menggunakan:
 | Tagged Counters          | Filter dan kategorisasi counter via tags                                        |
 | Counter Sharding         | Distribusi counter ke shard (FNV-1a hash) untuk penyebaran beban               |
 | Leader Election          | Bully algorithm memilih node ber-priority tertinggi sebagai leader             |
+| REST Gateway             | grpc-gateway: akses RPC via HTTP/JSON (tiap node, port `http_port`)            |
+| Admin API                | RPC admin: AddNode / RemoveNode / ForceSync untuk manajemen cluster            |
+| Web Dashboard            | Halaman HTML real-time: topologi cluster, nilai counter, gossip traffic        |
+| Kubernetes Deployment    | Manifest StatefulSet + Service + Redis untuk deploy ke k8s                     |
 | Network Partition Test   | Verifikasi eventual consistency saat cluster terbelah lalu pulih                |
 | Chaos Testing            | Simulasi restart container / node di dalam proses dan via Docker               |
 | Benchmark Suite          | Ukur throughput, convergence time, dan memori untuk 3/5/10/20 node            |
@@ -213,6 +217,7 @@ sequenceDiagram
 | go.opentelemetry.io/otel                                           | OpenTelemetry SDK            |
 | go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc    | OTLP gRPC trace exporter     |
 | go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc | gRPC tracing instrumentation |
+| github.com/grpc-ecosystem/grpc-gateway/v2                          | REST gateway (HTTP/JSON)     |
 
 ---
 
@@ -224,15 +229,19 @@ distributed-counter/
 │   └── proto/
 │       ├── counter.proto
 │       ├── counter.pb.go
-│       └── counter_grpc.pb.go
+│       ├── counter_grpc.pb.go
+│       └── counter.pb.gw.go   # grpc-gateway stubs
 ├── cmd/
 │   └── server/
 │       └── main.go
 ├── internal/
+│   ├── admin/          # AdminService RPC handlers (AddNode/RemoveNode/ForceSync)
 │   ├── cluster/        # Membership + SWIM failure detector
 │   ├── config/         # Viper-based configuration
 │   ├── crdt/           # PNCounter + Vector Clock (multi-counter aware)
+│   ├── dashboard/      # Web dashboard (HTML embedded + /api/cluster)
 │   ├── election/       # Bully leader election
+│   ├── gateway/        # grpc-gateway HTTP server (REST + dashboard + admin)
 │   ├── gossip/         # Gossip engine (delta/full sync, circuit breaker)
 │   ├── metrics/        # Prometheus metrics
 │   ├── persistence/    # Redis store + Write-Ahead Log
@@ -242,8 +251,9 @@ distributed-counter/
 ├── pkg/
 │   ├── grpcutil/       # Shared dial options (auth, compression, tracing)
 │   └── logger/
+├── third_party/        # google/api protos untuk grpc-gateway codegen
 ├── configs/
-├── deployments/        # Dockerfile, compose, prometheus, grafana
+├── deployments/        # Dockerfile, compose, prometheus, grafana, k8s
 ├── scripts/
 └── test/
     ├── benchmark/      # Throughput, convergence, memory benchmarks
@@ -284,6 +294,7 @@ docker compose version
 ```bash
 go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@latest
 ```
 
 Linux/macOS:
@@ -308,8 +319,10 @@ Linux/macOS:
 
 ```bash
 protoc \
-  --go_out=. \
-  --go-grpc_out=. \
+  -I api/proto -I third_party \
+  --go_out=. --go_opt=paths=source_relative \
+  --go-grpc_out=. --go-grpc_opt=paths=source_relative \
+  --grpc-gateway_out=. --grpc-gateway_opt=paths=source_relative \
   api/proto/counter.proto
 ```
 
@@ -317,8 +330,10 @@ Windows CMD:
 
 ```cmd
 protoc ^
-  --go_out=. ^
-  --go-grpc_out=. ^
+  -I api/proto -I third_party ^
+  --go_out=. --go_opt=paths=source_relative ^
+  --go-grpc_out=. --go-grpc_opt=paths=source_relative ^
+  --grpc-gateway_out=. --grpc-gateway_opt=paths=source_relative ^
   api/proto/counter.proto
 ```
 
@@ -327,7 +342,8 @@ Generated files:
 ```text
 api/proto/
 ├── counter.pb.go
-└── counter_grpc.pb.go
+├── counter_grpc.pb.go
+└── counter.pb.gw.go
 ```
 
 ---
@@ -344,7 +360,7 @@ advertise_address: node-a:50051
 
 # Metrics & HTTP
 metrics_port: 8080
-http_port: 8080
+http_port: 8081              # REST gateway + dashboard (grpc-gateway)
 
 # Gossip & heartbeat
 gossip_interval: 5            # detik antar gossip round
@@ -398,7 +414,7 @@ node_id: node-a
 grpc_port: 50051
 advertise_address: node-a:50051
 metrics_port: 8080
-http_port: 8080
+http_port: 8081
 
 seed_nodes:
   - node-b:50052
@@ -412,7 +428,7 @@ node_id: node-b
 grpc_port: 50052
 advertise_address: node-b:50052
 metrics_port: 8081
-http_port: 8081
+http_port: 8082
 
 seed_nodes:
   - node-a:50051
@@ -426,7 +442,7 @@ node_id: node-c
 grpc_port: 50053
 advertise_address: node-c:50053
 metrics_port: 8082
-http_port: 8082
+http_port: 8083
 
 seed_nodes:
   - node-a:50051
@@ -502,6 +518,7 @@ services:
     ports:
       - "50051:50051"
       - "8080:8080" # Prometheus metrics
+      - "8081:8081" # REST gateway + dashboard
     networks:
       - counter-net
 
@@ -516,6 +533,7 @@ services:
     ports:
       - "50052:50052"
       - "8081:8081"
+      - "8082:8082" # REST gateway + dashboard
     networks:
       - counter-net
 
@@ -530,6 +548,7 @@ services:
     ports:
       - "50053:50053"
       - "8082:8082"
+      - "8083:8083" # REST gateway + dashboard
     networks:
       - counter-net
 
@@ -860,6 +879,97 @@ Aturan penting:
 * **Stability**: leader yang sehat terus re-announce supaya followers tidak memicu election baru.
 
 Leader dapat dilihat pada respons `GetNodeInfo` (`leader_id`, `is_leader`) dan di metadata anggota.
+
+---
+
+# REST Gateway (grpc-gateway)
+
+Setiap node menjalankan HTTP gateway pada `http_port` yang menerjemahkan panggilan gRPC menjadi HTTP/JSON (protojson). Tidak ada hop tambahan: gateway berjalan in-process dan memanggil handler langsung.
+
+| Method | Path                        | Deskripsi                          |
+| ------ | --------------------------- | ---------------------------------- |
+| POST   | `/v1/counter/increment`     | Increment counter                  |
+| POST   | `/v1/counter/decrement`     | Decrement counter                  |
+| POST   | `/v1/counter/reset`         | Reset counter                      |
+| POST   | `/v1/counter`               | Create counter (multi counter)     |
+| GET    | `/v1/counter/value`         | Baca nilai counter                 |
+| GET    | `/v1/counter/counters`      | List counter (multi counter)       |
+| GET    | `/v1/node/info`             | Info node & leader                 |
+| POST   | `/v1/admin/add-node`        | Tambah node ke membership          |
+| POST   | `/v1/admin/remove-node`     | Hapus node dari membership         |
+| POST   | `/v1/admin/force-sync`      | Paksa gossip sync penuh ke peer    |
+
+Catatan protojson: field `int64` diserialisasi sebagai string, field `int32` sebagai number.
+
+Contoh:
+
+```bash
+curl -X POST http://localhost:8081/v1/counter/increment \
+  -H "Content-Type: application/json" \
+  -d '{"counter_name":"post_1","delta":5}'
+```
+
+---
+
+# Admin API
+
+`AdminService` memungkinkan manajemen cluster secara remote:
+
+| RPC          | Fungsi                                                             |
+| ------------ | ------------------------------------------------------------------ |
+| `AddNode`    | Tambahkan node baru (id + address) ke membership secara manual     |
+| `RemoveNode` | Tandai node sebagai `Left` sehingga tidak lagi diproksi oleh SWIM  |
+| `ForceSync`  | Paksa satu round gossip sync penuh ke semua peer hidup, return jumlah peer yang tercapai |
+
+Contoh gRPC:
+
+```bash
+grpcurl -d '{"node_id":"node-d","address":"node-d:50054"}' \
+  localhost:50051 counter.AdminService/AddNode
+```
+
+---
+
+# Web Dashboard
+
+Buka `http://localhost:8081/` (atau port gateway node lain) untuk dashboard real-time:
+
+* **Topologi cluster** — graf Cytoscape.js menampilkan node, leader, status health, dan link gossip aktif antar node.
+* **Tabel node** — id, address, status (Alive/Suspect/Dead/Left), role leader/follower, dan jumlah gossip terkirim/diterima.
+* **Tabel counter** — nilai agregat tiap counter (max antar node, sesuai semantik PNCounter CRDT) plus shard dan tags.
+
+Dashboard me-poll `/api/cluster` tiap 3 detik. Data agregasi diambil langsung dari node lokal dan rekan-rekannya via gRPC.
+
+---
+
+# Kubernetes Deployment
+
+Manifest k8s tersedia di `deployments/k8s/`:
+
+| File            | Isi                                                              |
+| --------------- | --------------------------------------------------------------- |
+| `namespace.yaml`| Namespace `distributed-counter`                                 |
+| `configmap.yaml`| 3 konfigurasi node (`counter-0/1/2`) memakai DNS in-cluster      |
+| `statefulset.yaml`| StatefulSet 3 replica + PVC per pod + readiness/liveness probe  |
+| `service.yaml`  | Headless Service `counter` + LoadBalancer `counter-lb`           |
+| `redis.yaml`    | Deployment + Service Redis untuk persistence                    |
+
+Apply semua manifest:
+
+```bash
+kubectl apply -f deployments/k8s/
+```
+
+Verifikasi:
+
+```bash
+kubectl -n distributed-counter get pods,svc,pvc
+```
+
+* Setiap pod memuat konfigurasi `$(POD_NAME).yaml` dari ConfigMap (pola `counter-0.yaml`, `counter-1.yaml`, `counter-2.yaml`).
+* Node saling menemukan via seed nodes dengan DNS headless service (`counter-<n>.counter.distributed-counter.svc.cluster.local:50051`).
+* Pod `counter-2` (priority tertinggi) akan terpilih sebagai leader bully.
+* REST gateway + dashboard tiap pod di port 8081; LoadBalancer `counter-lb` mengekspos 50051 dan 8081.
 
 ---
 
